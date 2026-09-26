@@ -19,7 +19,7 @@ var (
 	errConnect = errors.New("connect failed")
 	errStart   = errors.New("start failed")
 	errReady   = errors.New("ready failed")
-	errRestart = errors.New("restart failed")
+	errLeave   = errors.New("leave failed")
 )
 
 const discordPath = "/opt/discord"
@@ -30,7 +30,7 @@ type step struct {
 	profileErr error
 	startErr   error
 	readyErr   error
-	openErr    error
+	enterErr   error
 	drop       bool
 	renewErr   error                    // already waiting on the session's renewal channel
 	report     func(transport.Reporter) // what Start reports before returning
@@ -51,13 +51,13 @@ type harness struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	steps       []step
-	next        int
-	nudgeOn     map[int]bool
-	restartErrs []error
-	prov        *profiletest.Provisiond // when set, every connect leases from it
+	steps     []step
+	next      int
+	nudgeOn   map[int]bool
+	leaveErrs []error
+	prov      *profiletest.Provisiond // when set, every connect leases from it
 
-	transports      int
+	transports      int        // transports created; Run needs only one
 	renewals        chan error // renewal channel of the source the last connect opened
 	tunnel          int        // transport whose tunnel holds the fixed name; 0 when none does
 	events          []string
@@ -79,7 +79,6 @@ func newHarness(t *testing.T, opts Options, steps ...step) *harness {
 	h.sup = New(opts)
 	h.sup.openProfile = h.openProfile
 	h.sup.newTransport = h.newTransport
-	h.sup.restartDiscord = h.restartDiscord
 	h.sup.wait = h.wait
 	return h
 }
@@ -128,18 +127,9 @@ func (h *harness) openProfile(string, profile.Provisioning) (*profile.Source, er
 	return src, nil
 }
 
-func (h *harness) newTransport(_ routing.Mode, report transport.Reporter) (transport.Transport, error) {
+func (h *harness) newTransport(_ routing.Mode, path string, report transport.Reporter) (transport.Transport, error) {
 	h.transports++
-	return &fakeTransport{h: h, id: h.transports, step: h.steps[h.next-1], renewals: h.renewals, report: report}, nil
-}
-
-func (h *harness) restartDiscord(path string) (string, error) {
-	h.record("restart-discord %s", path)
-	var err error
-	if len(h.restartErrs) > 0 {
-		err, h.restartErrs = h.restartErrs[0], h.restartErrs[1:]
-	}
-	return path, err
+	return &fakeTransport{h: h, path: path, report: report}, nil
 }
 
 func (h *harness) wait(_ context.Context, d time.Duration, _ <-chan struct{}) (alive, nudged bool) {
@@ -167,16 +157,21 @@ func (h *harness) wantEvents(want ...string) {
 	}
 }
 
+// fakeTransport numbers the tunnels its Start calls bring up, and scripts each
+// from the step being connected.
 type fakeTransport struct {
 	h          *harness
+	path       string
+	report     transport.Reporter
 	id         int
 	step       step
 	renewals   chan error
-	report     transport.Reporter
 	readyCalls int
 }
 
 func (f *fakeTransport) Start(*wg.Config) error {
+	f.id++
+	f.step, f.renewals, f.readyCalls = f.h.steps[f.h.next-1], f.h.renewals, 0
 	f.h.record("start#%d", f.id)
 	if f.step.report != nil {
 		f.step.report(f.report)
@@ -212,15 +207,29 @@ func (f *fakeTransport) Ready() error {
 	return nil
 }
 
-func (f *fakeTransport) Open(path string) (string, error) {
-	f.h.record("open-discord#%d %s", f.id, path)
-	return path, f.step.openErr
+// Stop tears down by fixed name, as both real transports do: the interface
+// wg-discord on Linux, every wiresock-client.exe on Windows.
+func (f *fakeTransport) Stop() {
+	f.h.record("stop#%d", f.id)
+	f.h.tunnel = 0
 }
 
-// Close tears down by fixed name, as both real transports do: the namespace
-// discord-vpn on Linux, every wiresock-client.exe on Windows.
+func (f *fakeTransport) Enter() error {
+	f.h.record("enter#%d %s", f.id, f.path)
+	return f.step.enterErr
+}
+
+func (f *fakeTransport) Leave() error {
+	f.h.record("leave %s", f.path)
+	var err error
+	if len(f.h.leaveErrs) > 0 {
+		err, f.h.leaveErrs = f.h.leaveErrs[0], f.h.leaveErrs[1:]
+	}
+	return err
+}
+
 func (f *fakeTransport) Close() {
-	f.h.record("close#%d", f.id)
+	f.h.record("close")
 	f.h.tunnel = 0
 }
 
@@ -274,11 +283,11 @@ func TestRunFallbackHandsDiscordBackToNormalNetwork(t *testing.T) {
 	h.run()
 
 	h.wantEvents(
-		"start#1", "open-discord#1 "+discordPath, "close#1",
+		"start#1", "enter#1 "+discordPath, "stop#1",
 		"wait 3s", "wait 6s",
-		"restart-discord "+discordPath, "wait 12s",
+		"leave "+discordPath, "wait 12s",
 		"wait 24s",
-		"restart-discord "+discordPath,
+		"close",
 	)
 	wantTunneled := []bool{true, true, false, false}
 	for i, w := range h.waits {
@@ -288,18 +297,18 @@ func TestRunFallbackHandsDiscordBackToNormalNetwork(t *testing.T) {
 	}
 }
 
-func TestRunFallbackRetriesHandBackAfterRestartFails(t *testing.T) {
+func TestRunFallbackRetriesHandBackAfterLeaveFails(t *testing.T) {
 	h := newHarness(t, Options{DiscordPath: discordPath},
 		step{drop: true}, fail, fail, fail, fail)
-	h.restartErrs = []error{errRestart}
+	h.leaveErrs = []error{errLeave}
 	h.run()
 
 	h.wantEvents(
-		"start#1", "open-discord#1 "+discordPath, "close#1",
+		"start#1", "enter#1 "+discordPath, "stop#1",
 		"wait 3s", "wait 6s",
-		"restart-discord "+discordPath, "wait 12s",
-		"restart-discord "+discordPath, "wait 24s",
-		"restart-discord "+discordPath,
+		"leave "+discordPath, "wait 12s",
+		"leave "+discordPath, "wait 24s",
+		"close",
 	)
 	wantTunneled := []bool{true, true, true, false}
 	for i, w := range h.waits {
@@ -315,11 +324,11 @@ func TestRunReconnectAfterFallbackTunnelsDiscordAgain(t *testing.T) {
 	h.run()
 
 	h.wantEvents(
-		"start#1", "open-discord#1 "+discordPath, "close#1",
+		"start#1", "enter#1 "+discordPath, "stop#1",
 		"wait 3s", "wait 6s",
-		"restart-discord "+discordPath, "wait 12s",
-		"start#2", "open-discord#2 "+discordPath,
-		"close#2", "restart-discord "+discordPath,
+		"leave "+discordPath, "wait 12s",
+		"start#2", "enter#2 "+discordPath,
+		"stop#2", "close",
 	)
 	if len(h.probes) < 2 {
 		t.Fatalf("got %d health probes, want at least 2", len(h.probes))
@@ -337,23 +346,26 @@ func TestRunReconnectAfterFallbackTunnelsDiscordAgain(t *testing.T) {
 	}
 }
 
-func TestRunReconnectOpensDiscordInReplacementSession(t *testing.T) {
+func TestRunReconnectReusesTransportAndEntersDiscordAgain(t *testing.T) {
 	h := newHarness(t, Options{DiscordPath: discordPath}, step{drop: true}, step{})
 	h.run()
 
 	h.wantEvents(
-		"start#1", "open-discord#1 "+discordPath, "close#1",
-		"start#2", "open-discord#2 "+discordPath,
-		"close#2", "restart-discord "+discordPath,
+		"start#1", "enter#1 "+discordPath, "stop#1",
+		"start#2", "enter#2 "+discordPath,
+		"stop#2", "close",
 	)
+	if h.transports != 1 {
+		t.Errorf("created %d transports, want 1 for the whole run", h.transports)
+	}
 	if len(h.probes) < 2 || !h.probes[1].DiscordTunneled {
 		t.Errorf("health probes = %d, want a second one with DiscordTunneled", len(h.probes))
 	}
 }
 
-func TestRunReconnectReportsDiscordOutsideWhenOpenFails(t *testing.T) {
+func TestRunReconnectReportsDiscordOutsideWhenEnterFails(t *testing.T) {
 	h := newHarness(t, Options{DiscordPath: discordPath},
-		step{drop: true}, step{openErr: errors.New("discord exited")})
+		step{drop: true}, step{enterErr: errors.New("discord exited")})
 	h.run()
 
 	if len(h.probes) < 2 || h.probes[1].DiscordTunneled {
@@ -365,7 +377,7 @@ func TestRunDropRestartsBackoff(t *testing.T) {
 	h := newHarness(t, Options{}, fail, fail, step{drop: true}, fail, fail)
 	h.run()
 
-	h.wantEvents("wait 3s", "wait 6s", "start#1", "open-discord#1 ", "close#1", "wait 3s", "wait 6s", "restart-discord ")
+	h.wantEvents("wait 3s", "wait 6s", "start#1", "enter#1 ", "stop#1", "wait 3s", "wait 6s", "close")
 	st := h.waits[2].status
 	if st.State != StateDegraded || st.Failures != 1 || !errors.Is(st.LastError, errConnect) {
 		t.Errorf("status after drop = {State: %v, Failures: %d, LastError: %v}, want {%v, 1, %v}",
@@ -373,11 +385,11 @@ func TestRunDropRestartsBackoff(t *testing.T) {
 	}
 }
 
-func TestRunClosesTransportOnlyWhenReadyFails(t *testing.T) {
+func TestRunStopsTunnelOnlyWhenReadyFails(t *testing.T) {
 	h := newHarness(t, Options{}, step{startErr: errStart}, step{readyErr: errReady})
 	h.run()
 
-	h.wantEvents("start#1", "wait 3s", "start#2", "close#2", "wait 6s", "restart-discord ")
+	h.wantEvents("start#1", "wait 3s", "start#2", "stop#2", "wait 6s", "close")
 	if !errors.Is(h.waits[0].status.LastError, errStart) || !errors.Is(h.waits[1].status.LastError, errReady) {
 		t.Errorf("LastError = %v, %v; want %v, %v", h.waits[0].status.LastError, h.waits[1].status.LastError, errStart, errReady)
 	}
@@ -403,4 +415,14 @@ func TestSleepCtx(t *testing.T) {
 			t.Errorf("sleepCtx = (%v, %v), want (true, false)", alive, nudged)
 		}
 	})
+}
+
+func TestRunLeavesDiscordAloneWhenNoTransportWasCreated(t *testing.T) {
+	h := newHarness(t, Options{MaxFailures: 1}, fail, fail)
+	h.run()
+
+	h.wantEvents("wait 3s", "wait 6s")
+	if h.transports != 0 {
+		t.Errorf("created %d transports, want none before a profile opens", h.transports)
+	}
 }

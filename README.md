@@ -93,9 +93,12 @@ flowchart LR
    dentro dele, o nome da máquina e o usuário do sistema.
 2. O `provisiond` confere o acesso, registra a máquina no MongoDB e registra a
    chave pública como um peer da `wg0`, com um endereço só dele.
-3. O cliente sobe o túnel e **fecha e reabre o Discord dentro dele**. No Linux
-   o Discord nasce num namespace de rede cuja única saída é o túnel; no Windows
-   um filtro WFP captura os processos do Discord e só eles.
+3. O cliente sobe o túnel e **põe o Discord dentro dele sem tirar o foco de
+   nada**. No Linux o Discord roda num namespace de rede cuja única saída é o
+   túnel; no Windows um filtro WFP captura os processos do Discord e só eles.
+   Um Discord que carregou fora do túnel é fechado e reaberto minimizado lá
+   dentro: o Discord só lê a localização do IP ao carregar, e no Brasil ela
+   bloqueia o compartilhamento de tela e a câmera.
 4. Todo o tráfego do Discord — o gateway (TCP) e a mídia da chamada (UDP) — sai
    pela VPS. O resto do computador não é tocado.
 
@@ -121,14 +124,14 @@ sequenceDiagram
     P->>W: wg set, peer novo com IP 10.9.0.x
     P-->>C: endereço, chave do servidor, endpoint e prazo de 180 s
     C->>C: sobe o túnel (netns ou WireSock)
-    C->>D: fecha e reabre o Discord dentro do túnel
+    C->>D: põe o Discord no túnel (reabre minimizado se carregou fora)
     loop a cada 60 s
         C->>P: POST /renew
     end
     U->>C: q (sair)
     C->>P: POST /release
     P->>W: remove o peer
-    C->>D: reabre o Discord na rede normal
+    C->>D: devolve o Discord à rede normal
 ```
 
 Se o programa for fechado de forma abrupta (queda de energia, `kill -9`), o
@@ -221,6 +224,15 @@ tentativas. Depois de **3 falhas seguidas**, ele devolve o Discord à rede norma
 tentando em segundo plano. Quando o túnel volta, o Discord é posto de novo
 dentro dele.
 
+Nada disso toca na janela do Discord nem tira o foco do que a pessoa está
+fazendo. O IP público é o da VPS em toda conexão, então o Discord mantém a
+localização que leu ao carregar e só é forçado a reconectar: o cliente derruba
+as conexões TCP dele (`ss -K` dentro do namespace no Linux, `SetTcpEntry` no
+Windows, que só alcança IPv4). No Linux o namespace continua de pé entre uma
+conexão e outra e, no estado *sem túnel*, ganha a rede normal por um par veth
+com NAT no host. Se o veth falhar, o Discord é reaberto minimizado fora do
+túnel e a tela avisa.
+
 Uma renovação do acesso que falha aparece na tela como o último erro. O
 supervisor trata como queda e reconecta, seguindo as mesmas regras, quando o
 acesso acabou: o servidor responde que ele expirou (acesso desconectado pelo
@@ -236,7 +248,7 @@ O modo é escolhido pelo sistema.
 | **Modo** | `netns` | `wiresock` |
 | **Mecanismo** | o Discord roda num namespace de rede cuja única saída é o túnel | o WireSock instala um filtro WFP no kernel que captura só os processos do Discord |
 | **Privilégio** | `root` (`sudo`) | administrador (o `.exe` já pede, pelo UAC) |
-| **Dependências** | `iproute2` (comando `ip`) | WireSock, instalado sozinho pelo `winget` na primeira execução |
+| **Dependências** | `iproute2` (comandos `ip` e `ss`); `iptables` para o estado *sem túnel* | WireSock, instalado sozinho pelo `winget` na primeira execução |
 
 Fora do Linux e do Windows não há modo: capturar um processo inteiro depende de
 um mecanismo do sistema operacional. O programa diz isso e para, em vez de subir
@@ -331,7 +343,7 @@ cmd/discord-go-vpn/    o cliente: opções e escolha do perfil
 cmd/provisiond/        o servidor de acessos: flags e a ligação dos pacotes de internal/provisiond/
 internal/app/          liga as peças e controla o ciclo de vida (TUI, modo texto, bandeja)
 internal/contracttest/ confere os formatos de rede de testdata/contracts/ contra os tipos Go
-internal/discord/      encontra, fecha e reabre o cliente do Discord
+internal/discord/      encontra, fecha e reabre o cliente do Discord e derruba as conexões dele
 internal/errtext/      traduz para pt-BR os erros mostrados a quem usa
 internal/connectiontoken/ lê, pede, valida e guarda o token de conexão
 internal/platform/     console, elevação e bandeja do Windows
@@ -355,8 +367,10 @@ docs/                  glossário dos termos do domínio
   [`server/`](server/README.md)).
 - **Só Linux e Windows.** Fora deles não há mecanismo para capturar um processo
   inteiro.
-- **Um Discord já aberto não é capturado.** Ele precisa nascer dentro do túnel,
-  por isso o programa fecha e reabre o que estiver rodando.
+- **Um Discord que carregou fora do túnel é reaberto.** O Discord só lê a
+  localização do IP ao carregar, e no Linux ele ainda precisa nascer dentro do
+  namespace. Por isso o programa o reabre, minimizado, na primeira conexão (e,
+  no Linux, ao sair); as reconexões no meio do caminho não o fecham.
 - **Nada é feito no cliente.** O Discord roda sem modificação — o programa só
   escolhe por qual rede ele sai.
 

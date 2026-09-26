@@ -13,7 +13,7 @@ func TestRunShowsRenewFailureAndKeepsSession(t *testing.T) {
 	h := newHarness(t, Options{}, step{renewErr: errRenew})
 	h.run()
 
-	h.wantEvents("start#1", "open-discord#1 ", "close#1", "restart-discord ")
+	h.wantEvents("start#1", "enter#1 ", "stop#1", "close")
 	if len(h.probes) == 0 {
 		t.Fatal("no health probe after the renewal failure")
 	}
@@ -29,7 +29,7 @@ func TestRunTreatsLostLeaseAsDrop(t *testing.T) {
 	h := newHarness(t, Options{}, step{renewErr: errLost}, fail, fail, fail)
 	h.run()
 
-	h.wantEvents("start#1", "open-discord#1 ", "close#1", "wait 3s", "wait 6s", "restart-discord ", "wait 12s", "restart-discord ")
+	h.wantEvents("start#1", "enter#1 ", "stop#1", "wait 3s", "wait 6s", "leave ", "wait 12s", "close")
 	if len(h.connects) < 2 {
 		t.Fatalf("got %d connection attempts, want a reconnect after the lost lease", len(h.connects))
 	}

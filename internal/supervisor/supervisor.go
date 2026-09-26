@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bumaruf/discord-go-vpn/internal/discord"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
 	"github.com/bumaruf/discord-go-vpn/internal/transport"
@@ -120,11 +119,14 @@ type Supervisor struct {
 	// initial is Options.Source until connect takes it.
 	initial *profile.Source
 
+	// tr is created by the first connection that gets that far and serves every
+	// later one, so Discord stays open across reconnections. Only Run touches it.
+	tr transport.Transport
+
 	// Dependencies New wires to the real implementations; tests replace them.
-	openProfile    func(path string, prov profile.Provisioning) (*profile.Source, error)
-	newTransport   func(mode routing.Mode, report transport.Reporter) (transport.Transport, error)
-	restartDiscord func(explicit string) (string, error)
-	wait           func(ctx context.Context, d time.Duration, nudge <-chan struct{}) (alive, nudged bool)
+	openProfile  func(path string, prov profile.Provisioning) (*profile.Source, error)
+	newTransport func(mode routing.Mode, discordPath string, report transport.Reporter) (transport.Transport, error)
+	wait         func(ctx context.Context, d time.Duration, nudge <-chan struct{}) (alive, nudged bool)
 }
 
 func New(opts Options) *Supervisor {
@@ -145,10 +147,9 @@ func New(opts Options) *Supervisor {
 		status:  Status{State: StateStarting, Since: time.Now()},
 		initial: opts.Source,
 
-		openProfile:    profile.Open,
-		newTransport:   transport.New,
-		restartDiscord: discord.RestartAsUser,
-		wait:           sleepCtx,
+		openProfile:  profile.Open,
+		newTransport: transport.New,
+		wait:         sleepCtx,
 	}
 }
 

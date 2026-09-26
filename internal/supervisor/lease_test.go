@@ -42,7 +42,7 @@ func TestRunFirstConnectionUsesHandedLease(t *testing.T) {
 	h, prov := newLeaseHarness(t, Options{}, step{})
 	h.run()
 
-	h.wantEvents("start#1", "open-discord#1 ", "close#1", "restart-discord ")
+	h.wantEvents("start#1", "enter#1 ", "stop#1", "close")
 	wantLeaseCalls(t, prov, 1, 1)
 }
 
@@ -50,7 +50,7 @@ func TestRunReconnectAcquiresFreshLease(t *testing.T) {
 	h, prov := newLeaseHarness(t, Options{}, step{drop: true}, step{})
 	h.run()
 
-	h.wantEvents("start#1", "open-discord#1 ", "close#1", "start#2", "open-discord#2 ", "close#2", "restart-discord ")
+	h.wantEvents("start#1", "enter#1 ", "stop#1", "start#2", "enter#2 ", "stop#2", "close")
 	wantLeaseCalls(t, prov, 2, 2)
 	if len(h.releasedAtLease) != 1 || h.releasedAtLease[0] != 1 {
 		t.Errorf("/release calls before the fresh lease = %v, want [1]", h.releasedAtLease)

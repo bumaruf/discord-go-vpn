@@ -55,8 +55,8 @@ func TestRestartAsUserRunsDiscordAsTheSudoUser(t *testing.T) {
 	}
 
 	got := strings.Fields(readRecord(t, record))
-	if len(got) < 5 || strings.Join(got[:4], " ") != "sudo -u alice env" || got[len(got)-1] != exe {
-		t.Errorf("Discord was relaunched as %q, want sudo -u alice env ... %s", got, exe)
+	if len(got) < 6 || strings.Join(got[:4], " ") != "sudo -u alice env" || got[len(got)-2] != exe || got[len(got)-1] != MinimizedFlag {
+		t.Errorf("Discord was relaunched as %q, want sudo -u alice env ... %s %s", got, exe, MinimizedFlag)
 	}
 }
 

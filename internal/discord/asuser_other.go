@@ -9,8 +9,8 @@ import (
 	"os/user"
 )
 
-// RestartAsUser reopens Discord on the normal network as the user who invoked
-// sudo, without waiting for it, and returns the path used.
+// RestartAsUser reopens Discord minimized on the normal network as the user who
+// invoked sudo, without waiting for it, and returns the path used.
 func RestartAsUser(explicit string) (string, error) {
 	Stop()
 
@@ -19,7 +19,7 @@ func RestartAsUser(explicit string) (string, error) {
 		return "", err
 	}
 
-	argv := AsInvokingUser(exe)
+	argv := AsInvokingUser(exe, MinimizedFlag)
 	cmd := exec.Command(argv[0], argv[1:]...)
 
 	// Discord's output would garble the screen.

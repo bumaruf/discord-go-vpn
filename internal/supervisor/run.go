@@ -9,7 +9,8 @@ import (
 	"github.com/bumaruf/discord-go-vpn/internal/transport"
 )
 
-// session holds what one successful connection owns.
+// session holds what one successful connection owns: its lease and the tunnel
+// it brought up on the transport, which outlives it.
 type session struct {
 	source *profile.Source
 	tr     transport.Transport
@@ -19,14 +20,10 @@ func (s *session) close() {
 	if s == nil {
 		return
 	}
-	// Transport before profile: closing the lease first would leave the tunnel
+	// Tunnel before profile: closing the lease first would leave the tunnel
 	// pointed at a peer the server already removed.
-	if s.tr != nil {
-		s.tr.Close()
-	}
-	if s.source != nil {
-		s.source.Close()
-	}
+	s.tr.Stop()
+	s.source.Close()
 }
 
 // Run holds the tunnel up until the context is cancelled. It only returns when
@@ -40,9 +37,10 @@ func (s *Supervisor) Run(ctx context.Context) {
 		if s.initial != nil {
 			s.initial.Close()
 		}
-		s.set(func(st *Status) { st.State = StateStopped })
-
-		_, _ = s.restartDiscord(s.opts.DiscordPath)
+		if s.tr != nil {
+			s.tr.Close()
+		}
+		s.set(func(st *Status) { st.State, st.DiscordTunneled = StateStopped, false })
 	}()
 
 	backoff := backoffStart
@@ -72,7 +70,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 			})
 
 			if s.Status().State == StateFallback && s.Status().DiscordTunneled {
-				if _, err := s.restartDiscord(s.opts.DiscordPath); err == nil {
+				if err := s.tr.Leave(); err == nil {
 					s.set(func(st *Status) { st.DiscordTunneled = false })
 				}
 			}
@@ -94,10 +92,10 @@ func (s *Supervisor) Run(ctx context.Context) {
 		current = sess
 		backoff = backoffStart
 
-		// Discord is never inside a new session yet: after a drop it is still in
-		// the closed netns on Linux, and on Windows its connections left through
-		// the normal network while no filter was up.
-		_, err = sess.tr.Open(s.opts.DiscordPath)
+		// Discord is never on a new session's tunnel yet: after a drop its
+		// connections died with the old one, or left through the normal network
+		// while no tunnel was up.
+		err = sess.tr.Enter()
 		s.set(func(st *Status) { st.DiscordTunneled = err == nil })
 
 		s.set(func(st *Status) {
@@ -114,8 +112,8 @@ func (s *Supervisor) Run(ctx context.Context) {
 		s.watch(ctx, sess)
 
 		// Closed before the next attempt: both transports tear down by fixed
-		// name (the netns, every wiresock-client.exe), so a later Close would
-		// take the replacement tunnel down, and the lease would stay held.
+		// name (the TUN, every wiresock-client.exe), so a later Stop would take
+		// the replacement tunnel down, and the lease would stay held.
 		current.close()
 		current = nil
 	}
@@ -159,20 +157,23 @@ func (s *Supervisor) connect(ctx context.Context) (*session, error) {
 		}
 	}
 
-	tr, err := s.newTransport(s.opts.Mode, statusReporter{s})
-	if err != nil {
+	if s.tr == nil {
+		tr, err := s.newTransport(s.opts.Mode, s.opts.DiscordPath, statusReporter{s})
+		if err != nil {
+			source.Close()
+			return nil, err
+		}
+		s.tr = tr
+	}
+
+	if err := s.tr.Start(source.Config); err != nil {
 		source.Close()
 		return nil, err
 	}
 
-	if err := tr.Start(source.Config); err != nil {
-		source.Close()
-		return nil, err
-	}
+	sess := &session{source: source, tr: s.tr}
 
-	sess := &session{source: source, tr: tr}
-
-	if err := tr.Ready(); err != nil {
+	if err := s.tr.Ready(); err != nil {
 		sess.close()
 		return nil, err
 	}

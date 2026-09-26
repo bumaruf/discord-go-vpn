@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// MinimizedFlag opens Discord straight to the notification area, the way its
+// own autostart does, so a reopen never takes the focus from what the person
+// is doing. Vesktop takes the same flag.
+const MinimizedFlag = "--start-minimized"
+
 // Resolve returns explicit, the path the person gave, or else the one Find finds.
 func Resolve(explicit string) (string, error) {
 	if explicit != "" {
