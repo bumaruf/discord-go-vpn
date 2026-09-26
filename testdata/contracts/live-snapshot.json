@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-09-12T12:00:00Z",
+  "down_bps": 1250000,
+  "up_bps": 310000.5,
+  "online": 1,
+  "active": 2,
+  "limit": 50,
+  "peers": [
+    {
+      "id": "9f86d081884c7d65",
+      "invite_id": "66e2f1a0c3b4d5e6f7a8b9c0",
+      "device_id": "66e2f1a0c3b4d5e6f7a8b9c1",
+      "label": "notebook da ana",
+      "os_user": "ana",
+      "key": "YW5hLXB1YmxpYy1rZXktZm9yLXRoZS1maXh0dXJlISE=",
+      "ip": "10.9.0.10",
+      "origin": "198.51.100.x",
+      "origin_ip": "198.51.100.7",
+      "down_bps": 1250000,
+      "up_bps": 310000.5,
+      "rx_bytes": 52428800,
+      "tx_bytes": 734003200,
+      "last_handshake": "2026-09-12T11:59:40Z",
+      "online": true
+    },
+    {
+      "id": "3c59dc048e885024",
+      "label": "(sem nome)",
+      "key": "bGVnYWN5LXB1YmxpYy1rZXktZm9yLXRoZS1maXh0dXI=",
+      "ip": "10.9.0.11",
+      "origin": "203.0.113.x",
+      "origin_ip": "203.0.113.9",
+      "down_bps": 0,
+      "up_bps": 0,
+      "rx_bytes": 0,
+      "tx_bytes": 0,
+      "online": false
+    }
+  ]
+}

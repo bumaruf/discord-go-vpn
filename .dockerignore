@@ -1,0 +1,9 @@
+# The build context only needs provisiond's source.
+.git
+.claude
+dist
+build
+*.exe
+*.syso
+*.conf
+discord-go-vpn

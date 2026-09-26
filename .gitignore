@@ -1,0 +1,12 @@
+# Built binaries; release binaries are published separately, with SHA256SUMS.
+/discord-go-vpn
+/provisiond
+*.exe
+/dist/
+
+# WireGuard profiles hold a private key.
+*.conf
+!example.conf
+
+# The build no longer reads it, but old copies still hold the global token.
+/.provision

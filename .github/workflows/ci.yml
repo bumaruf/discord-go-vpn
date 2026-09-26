@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go-test:
+    name: Go (make test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make test
+
+  go-lint:
+    name: Go (make lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          # Makefile pins golangci-lint; a key distinct from go-test's lets each job keep its own build cache.
+          cache-dependency-path: |
+            go.sum
+            Makefile
+      - run: make lint
+
+  panel:
+    name: Panel (lint, typecheck, format, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: panel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Same major as the Vercel project.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+
+  server-changed:
+    name: Server image changed
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The paths server/Dockerfile builds from. A diff that fails (a before commit that is gone)
+      # counts as a change.
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git diff --quiet "$BEFORE" HEAD -- go.mod go.sum cmd/provisiond internal/provisiond \
+            server/Dockerfile server/wg-up.sh server/provisiond-up.sh; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-server:
+    name: Deploy server
+    needs: [go-test, go-lint, server-changed]
+    if: needs.server-changed.outputs.changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/deploy-server.yml
+    with:
+      sha: ${{ github.sha }}
+    # Without it the called job's vps environment secrets arrive empty (actions/runner#4453).
+    secrets: inherit

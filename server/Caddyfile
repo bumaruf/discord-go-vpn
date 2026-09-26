@@ -1,0 +1,29 @@
+# Public TLS for the panel's /admin/* routes. provisiond keeps its self-signed, pinned certificate
+# (server/README.md), so Caddy doesn't verify it on the local hop. PANEL_DOMAIN comes from .env.
+
+{$PANEL_DOMAIN} {
+
+	# Lease routes stay on 51821 with the pinned certificate; clients never go through Caddy.
+	handle /admin/* {
+		reverse_proxy https://localhost:51821 {
+			transport http {
+				tls
+				tls_insecure_skip_verify
+			}
+
+			# Without it the live stream arrives in buffered chunks instead of one event per second.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		respond "não há nada aqui" 404
+	}
+
+	encode zstd gzip
+
+	log {
+		output stderr
+		format console
+	}
+}

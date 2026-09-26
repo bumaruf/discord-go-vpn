@@ -1,0 +1,98 @@
+# The whole server; see server/README.md. Run from server/:
+#
+#   docker compose up -d --build
+#   docker compose --profile panel up -d
+
+# wireguard and provisiond run the same image and must agree on the tunnel subnet.
+x-build: &build
+  context: ..
+  dockerfile: server/Dockerfile
+
+x-subnet-env: &subnet-env
+  WG_SUBNET: ${WG_SUBNET:-}
+
+services:
+  wireguard:
+    build: *build
+    command: ["/usr/local/bin/wg-up.sh"]
+
+    # SYS_MODULE lets the host load the kernel module; without it wg-quick falls back to wireguard-go.
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+
+    # provisiond and caddy share this network stack, so their ports are published here.
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
+      - "80:80/tcp"
+      - "443:443/tcp"
+
+    environment: *subnet-env
+
+    volumes:
+      - wg-data:/etc/wireguard
+    restart: unless-stopped
+
+  provisiond:
+    build: *build
+    command: ["/usr/local/bin/provisiond-up.sh"]
+    # Room for provisiond to shut down cleanly: see shutdownTimeout and closeTimeout in
+    # cmd/provisiond/main.go.
+    stop_grace_period: 30s
+
+    # "wg set" must reach the wg0 that the wireguard service brought up.
+    network_mode: "service:wireguard"
+    cap_add:
+      - NET_ADMIN
+
+    environment:
+      <<: *subnet-env
+      ENDPOINT: ${ENDPOINT:-}
+      PANEL: ${PANEL:-1}
+      MONGODB_URI: ${MONGODB_URI:-}
+      MONGODB_DB: ${MONGODB_DB:-vpn}
+      VPN_PANEL_SECRET: ${VPN_PANEL_SECRET:-}
+      VPN_LIVE_SECRET: ${VPN_LIVE_SECRET:-}
+      PANEL_ORIGIN: ${PANEL_ORIGIN:-}
+
+    volumes:
+      - wg-data:/etc/wireguard
+    depends_on:
+      - wireguard
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["panel"]
+
+    # Shares the stack so the Caddyfile's localhost:51821 reaches provisiond.
+    network_mode: "service:wireguard"
+
+    environment:
+      # No ${VAR:?error}: interpolation runs before profile filtering, so it would break every
+      # Compose run without the panel profile.
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-set-PANEL_DOMAIN-in-env}
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps the issued certificate across restarts; Let's Encrypt rate-limits reissues.
+      - caddy-data:/data
+      - caddy-config:/config
+
+    depends_on:
+      - provisiond
+    restart: unless-stopped
+
+volumes:
+  # Deleting it invalidates every distributed client.
+  wg-data:
+    name: dgb-wg-data
+  caddy-data:
+    name: dgb-caddy-data
+  caddy-config:
+    name: dgb-caddy-config

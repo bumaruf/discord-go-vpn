@@ -1,0 +1,61 @@
+# Migration variant: provisiond in Docker on the host's existing wg0, reusing /etc/wireguard, so
+# tunnels stay up and clients keep their pinned fingerprint. See server/README.md (Opção B).
+#
+#   docker compose -f docker-compose.host.yml up -d
+
+services:
+  provisiond:
+    # PROVISIOND_TAG is the commit server/deploy.sh deployed; "latest" is what "up --build"
+    # builds with the source present.
+    image: ghcr.io/bumaruf/discord-go-vpn/provisiond:${PROVISIOND_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    command: ["/usr/local/bin/provisiond-up.sh"]
+    # Room for provisiond to shut down cleanly: see shutdownTimeout and closeTimeout in
+    # cmd/provisiond/main.go.
+    stop_grace_period: 30s
+
+    # "wg set" must reach the host's wg0.
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+
+    environment:
+      ENDPOINT: ${ENDPOINT:-}
+      PANEL: ${PANEL:-1}
+      MONGODB_URI: ${MONGODB_URI:-}
+      MONGODB_DB: ${MONGODB_DB:-vpn}
+      VPN_PANEL_SECRET: ${VPN_PANEL_SECRET:-}
+      VPN_LIVE_SECRET: ${VPN_LIVE_SECRET:-}
+      PANEL_ORIGIN: ${PANEL_ORIGIN:-}
+      # Must match the address of the host's wg0.
+      WG_SUBNET: ${WG_SUBNET:-}
+
+    volumes:
+      - /etc/wireguard:/etc/wireguard
+
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    network_mode: "host"
+
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-set-PANEL_DOMAIN-in-env}
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps the issued certificate across restarts; Let's Encrypt rate-limits reissues.
+      - caddy-data:/data
+      - caddy-config:/config
+
+    depends_on:
+      - provisiond
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+    name: dgb-caddy-data
+  caddy-config:
+    name: dgb-caddy-config

@@ -1,0 +1,25 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "Otávio Bumaruf",
+    "FileDescription": "Túnel WireGuard para o Discord",
+    "FileVersion": "1.0.0.0",
+    "InternalName": "discord-go-vpn",
+    "LegalCopyright": "© 2026 Otávio Bumaruf — licença MIT",
+    "OriginalFilename": "discord-go-vpn.exe",
+    "ProductName": "discord-go-vpn",
+    "ProductVersion": "1.0.0.0",
+    "Comments": "https://github.com/bumaruf/discord-go-vpn"
+  },
+  "VarFileInfo": {
+    "Translation": { "LangID": "0416", "CharsetID": "04B0" }
+  }
+}

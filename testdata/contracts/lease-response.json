@@ -1,0 +1,8 @@
+{
+  "id": "9f86d081884c7d65",
+  "address": "10.9.0.10/32",
+  "dns": "10.9.0.1",
+  "server_pubkey": "bXlzZXJ2ZXJwdWJsaWNrZXl0aGF0aXMzMmJ5dGVzISE=",
+  "endpoint": "203.0.113.1:51820",
+  "ttl_seconds": 180
+}
