@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { LiveProvider } from '@/components/live-provider'
 import { Toaster } from '@/components/ui/sonner'
-import { serverName } from '@/lib/env'
 import { requireAdmin } from '@/lib/require-admin'
 import { Header } from './header'
 
@@ -13,7 +12,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   return (
     <LiveProvider>
       <div className="flex min-h-screen flex-col">
-        <Header serverName={serverName()} />
+        <Header />
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
           {children}
         </main>

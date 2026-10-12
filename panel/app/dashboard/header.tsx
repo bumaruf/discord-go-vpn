@@ -17,7 +17,7 @@ const SOURCE_STATUS: Record<LiveSource, { text: string; tone: StatusTone }> = {
   connecting: { text: 'Conectando', tone: 'offline' },
 }
 
-export function Header({ serverName }: { serverName: string }) {
+export function Header() {
   const { source, snapshot } = useLiveState()
   const status = SOURCE_STATUS[source]
 
@@ -29,12 +29,8 @@ export function Header({ serverName }: { serverName: string }) {
           className="flex min-w-0 items-center gap-2.5 rounded-md text-sm font-medium"
         >
           <BrandMark />
-          <span className="hidden sm:inline">Painel VPN</span>
+          <span>Painel VPN</span>
         </Link>
-        <span className="hidden text-muted-foreground/40 select-none sm:inline" aria-hidden>
-          /
-        </span>
-        <span className="truncate font-mono text-sm text-muted-foreground">{serverName}</span>
 
         <div className="ml-auto flex items-center gap-2">
           <Tooltip>
