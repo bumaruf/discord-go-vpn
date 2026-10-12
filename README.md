@@ -26,6 +26,7 @@ downloads — continua na rede normal. No celular, o app Android faz o mesmo.
 - [Linux e Windows](#linux-e-windows)
 - [Android](#android)
 - [Compilando](#compilando)
+- [Atualização automática](#atualização-automática)
 - [Quando o Windows acusa o executável](#quando-o-windows-acusa-o-executável)
 - [Decisões de projeto](#decisões-de-projeto)
 - [Estrutura do repositório](#estrutura-do-repositório)
@@ -271,7 +272,7 @@ Como instalar, usar e compilar: [`android/README.md`](android/README.md).
 
 ```sh
 make          # binário para este sistema
-make dist     # Linux amd64 + Windows amd64/arm64, com SHA256SUMS
+make dist     # Linux amd64 + Windows amd64/arm64, com SHA256SUMS (VERSION=v1.2.3 numa versão publicada)
 make test     # gofmt + go vet (Linux e Windows) + testes
 make lint     # golangci-lint (Linux e Windows), configurado em .golangci.yml
 make android  # APK do app Android em dist/ (precisa do Android SDK e do NDK)
@@ -299,6 +300,59 @@ Outros alvos: `make syso` regera os recursos do Windows (manifest, metadados e
 ícone), `make icon` regera o `.ico` a partir do favicon do painel
 (`panel/app/icon.svg`, precisa de ImageMagick) e
 `make provisiond` compila o servidor para linux/amd64.
+
+## Atualização automática
+
+Ao abrir, antes de levantar o túnel, o cliente de Linux e Windows procura a
+versão mais nova nas [Releases](https://github.com/bumaruf/discord-go-vpn/releases)
+deste repositório. Achando uma maior que a sua, baixa o binário da sua
+plataforma, troca o próprio executável e se reabre com os mesmos argumentos.
+Como isso acontece antes de conectar, uma atualização nunca derruba uma chamada.
+Se o GitHub não responder em 10 s, ou se algo falhar, o cliente avisa numa linha
+e segue com a versão atual. `-no-update` pula a verificação.
+
+**Por que dá para confiar.** Cada release traz um `update.json`, com a versão e
+o SHA-256 de cada binário, e o `update.json.sig`, a assinatura ed25519 dele. O
+cliente só aceita um manifesto assinado pela chave pública que ele mesmo traz
+embutida (`publicKey` em `internal/update/update.go`), só instala um binário cujo
+tamanho e hash batem com o manifesto, e só sobe de versão, nunca desce. Então
+quem tomar a conta do GitHub ou a release não consegue mandar um binário para os
+clientes: para isso precisaria da chave privada, que existe só como secret do CI.
+
+- **Linux:** o arquivo novo substitui o antigo com um `rename`, e o processo se
+  troca pelo novo via `exec`, mantendo o `sudo` e o terminal.
+- **Windows:** um `.exe` em execução não pode ser sobrescrito, mas pode ser
+  renomeado: o antigo vira `discord-go-vpn.exe.old`, que a próxima abertura
+  apaga. A versão nova roda como processo filho na mesma janela.
+- **Android:** fica de fora por enquanto; o APK continua vindo do CI.
+
+Um binário compilado sem `VERSION` (o `make` comum, ou `go build`) nunca se
+atualiza.
+
+### Publicando uma versão
+
+Uma vez só, para criar a chave:
+
+```sh
+go run ./cmd/updatesign keygen
+```
+
+A linha `private` vira o secret `UPDATE_SIGNING_KEY` do repositório (Settings →
+Secrets and variables → Actions) e não é guardada em mais lugar nenhum. A linha
+`public` vai para `publicKey` em `internal/update/update.go`, num commit. Trocar
+a chave depois exige que todo mundo baixe à mão um binário com a chave nova.
+
+Depois, a cada versão, basta uma tag:
+
+```sh
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+O workflow `.github/workflows/release.yml` roda `make test`, compila com
+`make dist VERSION=v1.2.3`, assina com `make sign` e publica a release com os
+binários, o `SHA256SUMS`, o `update.json` e a assinatura. O `make sign` falha se o
+secret não corresponder à `publicKey` do código, para nunca publicar uma versão
+que os clientes recusariam.
 
 ## Quando o Windows acusa o executável
 
@@ -345,6 +399,7 @@ android/               o app Android (Kotlin, Jetpack Compose)
 build/                 manifest, ícone e metadados do .exe (viram rsrc_windows_*.syso)
 cmd/discord-go-vpn/    o cliente: opções e escolha do perfil
 cmd/provisiond/        o servidor de acessos: flags e a ligação dos pacotes de internal/provisiond/
+cmd/updatesign/        cria a chave de atualização e assina o update.json de uma release
 internal/app/          liga as peças e controla o ciclo de vida (TUI, modo texto, bandeja)
 internal/contracttest/ confere os formatos de rede de testdata/contracts/ contra os tipos Go
 internal/discord/      encontra, fecha e reabre o cliente do Discord
@@ -358,6 +413,7 @@ internal/supervisor/   mantém o túnel de pé, reconecta e faz o fallback
 internal/statustext/   os nomes dos estados e os textos que a tela, a bandeja e o app Android mostram
 internal/transport/    põe o Discord no túnel: netns no Linux, WireSock no Windows, VpnService no Android
 internal/ui/           a interface de texto
+internal/update/       a atualização automática: confere o manifesto assinado, troca o executável e reabre
 internal/wg/           lê o .conf
 mobile/                a API Go que o gomobile empacota para o app Android
 panel/                 painel de administração (Next.js + MongoDB)

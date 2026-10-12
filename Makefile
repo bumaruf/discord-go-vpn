@@ -1,5 +1,6 @@
 #   make           client for this system
-#   make dist      Linux and Windows (amd64 and arm64), with SHA256SUMS
+#   make dist      Linux and Windows (amd64 and arm64), with SHA256SUMS; VERSION=v1.2.3 for a release
+#   make sign      update.json and its signature for dist/ (needs VERSION and UPDATE_SIGNING_KEY)
 #   make icon      regenerate build/icon.ico from the panel favicon (panel/app/icon.svg)
 #   make syso      regenerate the Windows resources (manifest, version info, icon)
 #   make test      gofmt, go vet and the test suites
@@ -10,11 +11,13 @@ BIN     := discord-go-vpn
 PKG     := ./cmd/discord-go-vpn
 DIST    := dist
 
-# Reproducible build: unsigned binaries are verified by hash (README.md).
+# Reproducible build: unsigned binaries are verified by hash (README.md). A build
+# without a release VERSION never updates itself.
+VERSION ?= dev
 GOFLAGS := -trimpath
-LDFLAGS := -buildid=
+LDFLAGS := -buildid= -X github.com/bumaruf/discord-go-vpn/internal/update.Version=$(VERSION)
 
-.PHONY: all dist icon syso lint test clean provisiond android
+.PHONY: all dist sign icon syso lint test clean provisiond android
 
 all:
 	@echo "· $(BIN) (this system)"
@@ -34,6 +37,11 @@ dist:
 	@echo "publish SHA256SUMS with the binaries -- it is how anyone"
 	@echo "checks they got what you built:"
 	@cat $(DIST)/SHA256SUMS
+
+sign:
+	@go run ./cmd/updatesign sign -version $(VERSION) -dir $(DIST) \
+	  linux/amd64=$(BIN) windows/amd64=$(BIN).exe windows/arm64=$(BIN)-arm64.exe
+	@echo "· $(DIST)/update.json, $(DIST)/update.json.sig"
 
 # Needs ImageMagick; build/icon.ico is committed. The panel's favicon is the only source of the
 # icon, rendered once at 1024px and scaled down to each size.

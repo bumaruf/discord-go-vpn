@@ -1,0 +1,32 @@
+name: Release
+
+# A v* tag publishes the client binaries with the signed update manifest that
+# installed clients read from releases/latest.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make test
+      - run: make dist VERSION="$GITHUB_REF_NAME"
+      - run: make sign VERSION="$GITHUB_REF_NAME"
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+      - run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            dist/discord-go-vpn dist/discord-go-vpn.exe dist/discord-go-vpn-arm64.exe \
+            dist/SHA256SUMS dist/update.json dist/update.json.sig
+        env:
+          GH_TOKEN: ${{ github.token }}
