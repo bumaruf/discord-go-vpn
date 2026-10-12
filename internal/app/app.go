@@ -19,6 +19,7 @@ import (
 	"github.com/bumaruf/discord-go-vpn/internal/errtext"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
+	"github.com/bumaruf/discord-go-vpn/internal/statustext"
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
 	"github.com/bumaruf/discord-go-vpn/internal/ui"
 )
@@ -115,13 +116,6 @@ func Run(opts Options) int {
 	return 0
 }
 
-func tokenAskText(ask supervisor.TokenAsk) string {
-	if ask == supervisor.TokenUnanswered {
-		return "O servidor deste token não respondeu às últimas tentativas."
-	}
-	return "O convite deste token foi revogado, ou o token não vale mais."
-}
-
 // readLines delivers what is typed, or nil when nothing will read stdin. The
 // goroutine outlives ctx, since a read in progress can't be cancelled; it ends
 // with the process.
@@ -212,7 +206,7 @@ func runPlain(ctx context.Context, opts Options, updates <-chan supervisor.Statu
 				return
 			}
 			if st.TokenAsk != supervisor.TokenFine && previous.TokenAsk != st.TokenAsk && apply != nil {
-				fmt.Fprintln(opts.Out, "\n  "+tokenAskText(st.TokenAsk))
+				fmt.Fprintln(opts.Out, "\n  "+statustext.TokenAskReason(st.TokenAsk))
 				fmt.Fprintln(opts.Out, "  Cole um token de conexão novo (dgv1_…) e tecle Enter:")
 			}
 			if st.Progress != "" && st.Progress != previous.Progress {
@@ -235,7 +229,7 @@ func runPlain(ctx context.Context, opts Options, updates <-chan supervisor.Statu
 				continue
 			}
 
-			name := ui.StateLabel(st.State)
+			name := statustext.StateLabel(st.State)
 			switch st.State {
 			case supervisor.StateHealthy:
 				fmt.Fprintf(opts.Out, "  ✓ %s\n", name)

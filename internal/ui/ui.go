@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/bumaruf/discord-go-vpn/internal/errtext"
+	"github.com/bumaruf/discord-go-vpn/internal/statustext"
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
 )
 
@@ -260,10 +261,7 @@ func (m Model) render(omit map[string]bool) string {
 
 // tokenPrompt draws why the access was refused and the field for the new token.
 func (m Model) tokenPrompt() string {
-	reason := "O convite deste token foi revogado, ou o token não vale mais."
-	if m.status.TokenAsk == supervisor.TokenUnanswered {
-		reason = "O servidor deste token não respondeu às últimas tentativas."
-	}
+	reason := statustext.TokenAskReason(m.status.TokenAsk)
 
 	var b strings.Builder
 	b.WriteString("\n  " + bold.Render("Cole um token de conexão novo") + "\n")
@@ -350,7 +348,7 @@ func (m Model) hud(omit map[string]bool) string {
 
 	line("perfil", m.profile)
 	line("discord", m.discordLine())
-	line("há", humanDur(m.status.Uptime()))
+	line("há", statustext.Duration(m.status.Uptime()))
 
 	if m.status.Warning != "" {
 		b.WriteString("\n" + warnSt.Render(truncate(m.status.Warning, m.innerWidth())) + "\n")
@@ -447,7 +445,7 @@ func elide(rows []string, n, width int) []string {
 
 func (m Model) linkLine() string {
 	st := m.status
-	name := StateLabel(st.State)
+	name := statustext.StateLabel(st.State)
 	switch st.State {
 	case supervisor.StateHealthy:
 		return okSt.Render("●") + "  " + bold.Render(name)
@@ -464,19 +462,6 @@ func (m Model) linkLine() string {
 			dim.Render("   Discord na rede normal, tentando voltar")
 	}
 	return dim.Render("○  " + name)
-}
-
-func humanDur(d time.Duration) string {
-	d = d.Truncate(time.Second)
-	h, m, s := int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60
-	switch {
-	case h > 0:
-		return fmt.Sprintf("%dh %02dmin", h, m)
-	case m > 0:
-		return fmt.Sprintf("%dmin %02ds", m, s)
-	default:
-		return fmt.Sprintf("%ds", s)
-	}
 }
 
 func (m Model) discordLine() string {

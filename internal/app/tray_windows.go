@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/bumaruf/discord-go-vpn/internal/platform/tray"
+	"github.com/bumaruf/discord-go-vpn/internal/statustext"
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
-	"github.com/bumaruf/discord-go-vpn/internal/ui"
 )
 
 const tooltipRefresh = 2 * time.Second
@@ -57,7 +57,7 @@ func startTray(sup *supervisor.Supervisor) (func(), error) {
 				return
 			case <-tick.C:
 				st := sup.Status()
-				tooltip := fmt.Sprintf("discord-go-vpn — %s", ui.StateLabel(st.State))
+				tooltip := fmt.Sprintf("discord-go-vpn — %s", statustext.StateLabel(st.State))
 				if tooltip != previous {
 					t.SetTooltip(tooltip)
 					previous = tooltip

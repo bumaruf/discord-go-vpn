@@ -90,6 +90,11 @@ type Options struct {
 
 	// ProbeEvery is the gap between health probes on a healthy tunnel.
 	ProbeEvery time.Duration
+
+	// NewTransport and RestartDiscord replace the desktop ones where Discord is put
+	// in the tunnel some other way, as on Android; nil keeps the desktop ones.
+	NewTransport   func(mode routing.Mode, report transport.Reporter) (transport.Transport, error)
+	RestartDiscord func(explicit string) (string, error)
 }
 
 const (
@@ -135,7 +140,7 @@ func New(opts Options) *Supervisor {
 		opts.ProbeEvery = defaultProbeEvery
 	}
 
-	return &Supervisor{
+	s := &Supervisor{
 		opts:      opts,
 		provision: opts.Provision,
 		// Buffered, and set drops a frame rather than block: the next frame
@@ -150,6 +155,13 @@ func New(opts Options) *Supervisor {
 		restartDiscord: discord.RestartAsUser,
 		wait:           sleepCtx,
 	}
+	if opts.NewTransport != nil {
+		s.newTransport = opts.NewTransport
+	}
+	if opts.RestartDiscord != nil {
+		s.restartDiscord = opts.RestartDiscord
+	}
+	return s
 }
 
 // Updates delivers a snapshot whenever something changes.

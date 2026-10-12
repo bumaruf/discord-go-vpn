@@ -107,6 +107,23 @@ func TestAcquireRequestsLeaseAndBuildsConfig(t *testing.T) {
 	}
 }
 
+func TestAcquireSendsLabelOverHostname(t *testing.T) {
+	f := profiletest.NewProvisiond(t)
+	c := newClient(f)
+	c.Label = "Pixel 8"
+	c.newTicker = newManualTicker().newTicker
+
+	lease, err := c.Acquire()
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer lease.Release()
+
+	if got := f.Calls("/lease")[0]["label"]; got != "Pixel 8" {
+		t.Errorf("label = %v, want Pixel 8", got)
+	}
+}
+
 func TestAcquirePinsCertificateFingerprint(t *testing.T) {
 	f := profiletest.NewProvisiond(t)
 

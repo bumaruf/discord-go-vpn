@@ -29,11 +29,13 @@ func (s *Source) Close() {
 }
 
 // Provisioning is where to lease from, as the connection token carries it: the server, its
-// certificate fingerprint and the invite to present.
+// certificate fingerprint and the invite to present. Label is the device's name in the
+// panel, which the token doesn't carry; empty means the hostname.
 type Provisioning struct {
 	Server      string
 	Token       string
 	Fingerprint string
+	Label       string
 }
 
 func (p Provisioning) Configured() bool {
@@ -50,14 +52,14 @@ func Open(path string, prov Provisioning) (*Source, error) {
 	}
 
 	if prov.Configured() {
-		client := &Client{Server: prov.Server, Token: prov.Token, Fingerprint: prov.Fingerprint}
+		client := &Client{Server: prov.Server, Token: prov.Token, Fingerprint: prov.Fingerprint, Label: prov.Label}
 		lease, err := client.Acquire()
 		if err != nil {
 			return nil, fmt.Errorf("não consegui obter um acesso: %w", err)
 		}
 		return &Source{
 			Config:        lease.Config,
-			Origin:        "acesso do servidor",
+			Origin:        LeaseOrigin,
 			RenewFailures: lease.RenewFailures(),
 			closeFn:       lease.Release,
 		}, nil
@@ -65,6 +67,9 @@ func Open(path string, prov Provisioning) (*Source, error) {
 
 	return nil, ErrNoProfile
 }
+
+// LeaseOrigin names a profile leased from provisiond on screen.
+const LeaseOrigin = "acesso do servidor"
 
 // ErrNoProfile separates "there is nowhere to get a configuration from" from a
 // read failure, because the advice differs in each case.
