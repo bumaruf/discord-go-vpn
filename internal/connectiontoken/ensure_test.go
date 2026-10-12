@@ -50,7 +50,7 @@ func TestEnsureHandsOverValidationLease(t *testing.T) {
 	if leases, releases := len(prov.Calls("/lease")), len(prov.Calls("/release")); leases != 1 || releases != 1 {
 		t.Errorf("got %d /lease and %d /release calls, want 1 and 1", leases, releases)
 	}
-	if saved := readSavedToken(); saved != want.String() {
+	if saved := Saved(); saved != want.String() {
 		t.Errorf("saved %q, want the accepted token", saved)
 	}
 }
@@ -90,14 +90,14 @@ func TestValidateClassifiesByStatusCode(t *testing.T) {
 		status      int
 		body        string
 		unreachable bool
-		want        validation
+		want        Validation
 	}{
-		{name: "accepted", status: http.StatusOK, want: accepted},
-		{name: "unauthorized", status: http.StatusUnauthorized, want: refused},
-		{name: "forbidden", status: http.StatusForbidden, body: "acesso negado", want: refused},
-		{name: "too many requests", status: http.StatusTooManyRequests, want: unavailable},
-		{name: "server error mentioning 401", status: http.StatusBadGateway, body: "upstream answered 401", want: unavailable},
-		{name: "unreachable", status: http.StatusOK, unreachable: true, want: unavailable},
+		{name: "accepted", status: http.StatusOK, want: Accepted},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: Refused},
+		{name: "forbidden", status: http.StatusForbidden, body: "acesso negado", want: Refused},
+		{name: "too many requests", status: http.StatusTooManyRequests, want: Unavailable},
+		{name: "server error mentioning 401", status: http.StatusBadGateway, body: "upstream answered 401", want: Unavailable},
+		{name: "unreachable", status: http.StatusOK, unreachable: true, want: Unavailable},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestValidateClassifiesByStatusCode(t *testing.T) {
 				prov.Close()
 			}
 
-			got, lease := validate(token)
+			got, lease := Validate(token.Provisioning())
 			if lease != nil {
 				lease.Close()
 			}
@@ -125,14 +125,14 @@ func TestValidateClassifiesByStatusCode(t *testing.T) {
 func TestTokenPersistence(t *testing.T) {
 	configDir := isolateConfigDir(t)
 
-	if readSavedToken() != "" {
+	if Saved() != "" {
 		t.Fatal("started with a saved token where there should be none")
 	}
 
 	token := fixture(t)
 	Save(token)
 
-	if got := readSavedToken(); got != token.String() {
+	if got := Saved(); got != token.String() {
 		t.Errorf("read %q, saved %q", got, token.String())
 	}
 
@@ -145,7 +145,7 @@ func TestTokenPersistence(t *testing.T) {
 	}
 
 	Forget()
-	if readSavedToken() != "" {
+	if Saved() != "" {
 		t.Error("forget did not delete the token")
 	}
 }

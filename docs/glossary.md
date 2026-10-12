@@ -38,3 +38,4 @@ O texto que o usuário final lê continua em pt-BR (TUI, CLI, painel). O glossá
 | túnel | tunnel | O túnel WireGuard por onde passa o Discord, levantado pelo transporte do cliente. |
 | perfil | profile | Configuração WireGuard que o cliente usa: um `.conf` na pasta ou a que vem de um lease. |
 | bandeja | tray | Ícone do cliente na área de notificação do Windows. |
+| bloco rápido | tile | Botão do app Android nas configurações rápidas, que liga e desliga o túnel. |

@@ -41,6 +41,7 @@ type Client struct {
 	Server      string // https://host:port
 	Token       string
 	Fingerprint string // base64 SHA-256 of the server certificate
+	Label       string // the device's name in the panel; empty means the hostname
 
 	// newTicker drives renewals; nil means time.NewTicker. Tests replace it.
 	newTicker func(d time.Duration) (ticks <-chan time.Time, stop func())
@@ -98,11 +99,14 @@ func (c *Client) Acquire() (*Lease, error) {
 		Endpoint  string `json:"endpoint"`
 		TTL       int    `json:"ttl_seconds"`
 	}
-	// The hostname and OS user only identify the device in the panel; they authorize nothing.
-	name, _ := os.Hostname()
+	// The label and OS user only identify the device in the panel; they authorize nothing.
+	label := c.Label
+	if label == "" {
+		label, _ = os.Hostname()
+	}
 
 	if err := post(cli, c.Server+"/lease", leaseRequest{
-		Token: c.Token, PubKey: pub, Label: name, OSUser: osuser.Name(),
+		Token: c.Token, PubKey: pub, Label: label, OSUser: osuser.Name(),
 	}, &reply); err != nil {
 		return nil, err
 	}

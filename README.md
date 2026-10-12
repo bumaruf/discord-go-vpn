@@ -4,7 +4,7 @@ Abre o Discord dentro de um túnel WireGuard **sem modificar o cliente** e sem
 instalar uma VPN para o sistema todo.
 
 Só o Discord passa pelo túnel. O resto do computador — navegador, jogos,
-downloads — continua na rede normal.
+downloads — continua na rede normal. No celular, o app Android faz o mesmo.
 
 ```
 ╭──────────────────────────────────────────────────────╮
@@ -24,6 +24,7 @@ downloads — continua na rede normal.
 - [Arquitetura](#arquitetura)
 - [Começando](#começando)
 - [Linux e Windows](#linux-e-windows)
+- [Android](#android)
 - [Compilando](#compilando)
 - [Quando o Windows acusa o executável](#quando-o-windows-acusa-o-executável)
 - [Decisões de projeto](#decisões-de-projeto)
@@ -33,11 +34,12 @@ downloads — continua na rede normal.
 
 ## Visão geral
 
-O projeto tem três partes:
+O projeto tem três partes, e o cliente tem uma versão para Android:
 
 | Parte | Onde roda | O que faz |
 |---|---|---|
 | **Cliente** (`cmd/discord-go-vpn`) | no computador de quem usa | sobe o túnel, põe o Discord dentro dele e mostra o estado na tela |
+| **App Android** (`android/`, `mobile/`) | no celular de quem usa | o mesmo cliente, com a VPN do Android restrita ao app do Discord |
 | **Servidor** (`server/`, `cmd/provisiond`) | numa VPS | o WireGuard e o `provisiond`, que entrega acessos temporários a quem roda o cliente |
 | **Painel** (`panel/`) | Vercel + MongoDB Atlas | onde o administrador vê quem está conectado e derruba acessos, e gera os convites que viram tokens de conexão |
 
@@ -240,7 +242,8 @@ O modo é escolhido pelo sistema.
 
 Fora do Linux e do Windows não há modo: capturar um processo inteiro depende de
 um mecanismo do sistema operacional. O programa diz isso e para, em vez de subir
-um túnel por onde o Discord não passaria.
+um túnel por onde o Discord não passaria. No Android esse mecanismo existe, e o
+app próprio o usa (abaixo).
 
 ### Particularidades do Windows
 
@@ -253,6 +256,17 @@ um túnel por onde o Discord não passaria.
 - O Discord é aberto direto pelo `Discord.exe` da versão mais recente, sem
   passar pelo `Update.exe` — essa execução não busca atualização.
 
+## Android
+
+O app (`android/`) usa a VPN do Android com o Discord como único app permitido:
+o sistema põe no túnel tudo o que o Discord abre, voz e vídeo inclusive, e
+nada mais. Por baixo roda o mesmo código Go do cliente desktop — token de
+conexão, acesso temporário, supervisor e reconexão —, empacotado com o
+`gomobile` a partir de `mobile/`. Os estados e as mensagens são os mesmos da
+tela do desktop, e o visual segue o do painel.
+
+Como instalar, usar e compilar: [`android/README.md`](android/README.md).
+
 ## Compilando
 
 ```sh
@@ -260,11 +274,12 @@ make          # binário para este sistema
 make dist     # Linux amd64 + Windows amd64/arm64, com SHA256SUMS
 make test     # gofmt + go vet (Linux e Windows) + testes
 make lint     # golangci-lint (Linux e Windows), configurado em .golangci.yml
+make android  # APK do app Android em dist/ (precisa do Android SDK e do NDK)
 ```
 
-O CI (`.github/workflows/ci.yml`) roda `make test`, `make lint` e o lint,
-typecheck, Prettier, Vitest e build do painel em todo pull request e em todo
-push no `main`.
+O CI (`.github/workflows/ci.yml`) roda `make test`, `make lint`, `make android`
+(o APK fica como artefato do job) e o lint, typecheck, Prettier, Vitest e build
+do painel em todo pull request e em todo push no `main`.
 
 Para compilar para Windows a partir de outro sistema sem o Makefile:
 
@@ -326,6 +341,7 @@ acesso morre junto.
 ## Estrutura do repositório
 
 ```
+android/               o app Android (Kotlin, Jetpack Compose)
 build/                 manifest, ícone e metadados do .exe (viram rsrc_windows_*.syso)
 cmd/discord-go-vpn/    o cliente: opções e escolha do perfil
 cmd/provisiond/        o servidor de acessos: flags e a ligação dos pacotes de internal/provisiond/
@@ -339,9 +355,11 @@ internal/profile/      de onde vem a configuração: .conf local ou acesso do se
 internal/provisiond/   o servidor de acessos por dentro: leases, convites, métricas, stream e ações do painel
 internal/routing/      os modos de rota (netns, wiresock)
 internal/supervisor/   mantém o túnel de pé, reconecta e faz o fallback
-internal/transport/    põe o Discord no túnel: netns no Linux, WireSock no Windows
+internal/statustext/   os nomes dos estados e os textos que a tela, a bandeja e o app Android mostram
+internal/transport/    põe o Discord no túnel: netns no Linux, WireSock no Windows, VpnService no Android
 internal/ui/           a interface de texto
 internal/wg/           lê o .conf
+mobile/                a API Go que o gomobile empacota para o app Android
 panel/                 painel de administração (Next.js + MongoDB)
 server/                o que roda na VPS (Docker Compose, Caddy, scripts)
 testdata/contracts/    os formatos de rede que o Go e o painel conferem
@@ -353,8 +371,9 @@ docs/                  glossário dos termos do domínio
 - **A qualidade depende da saída.** IPs de VPN pública gratuita costumam ser
   compartilhados e saturados; um servidor próprio dá banda dedicada (veja
   [`server/`](server/README.md)).
-- **Só Linux e Windows.** Fora deles não há mecanismo para capturar um processo
-  inteiro.
+- **Só Linux, Windows e Android.** Fora deles não há mecanismo para capturar um
+  processo inteiro; no iPhone, a VPN por app só existe em aparelhos gerenciados
+  por MDM.
 - **Um Discord já aberto não é capturado.** Ele precisa nascer dentro do túnel,
   por isso o programa fecha e reabre o que estiver rodando.
 - **Nada é feito no cliente.** O Discord roda sem modificação — o programa só
@@ -366,6 +385,7 @@ docs/                  glossário dos termos do domínio
 |---|---|
 | [`server/README.md`](server/README.md) | montar a VPS, subir o servidor, painel com Caddy, migração e referência de rotas e variáveis |
 | [`panel/README.md`](panel/README.md) | rodar e publicar o painel de administração |
+| [`android/README.md`](android/README.md) | instalar, usar e compilar o app Android |
 | [`docs/glossary.md`](docs/glossary.md) | o nome em inglês de cada termo do domínio |
 
 ## Licença

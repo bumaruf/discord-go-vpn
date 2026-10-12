@@ -39,6 +39,22 @@ jobs:
             Makefile
       - run: make lint
 
+  android:
+    name: Android (make android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The runner image ships the Android SDK, an NDK and JDK 17.
+      - run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" make android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: discord-go-vpn-apk
+          path: dist/discord-go-vpn.apk
+
   panel:
     name: Panel (lint, typecheck, format, test, build)
     runs-on: ubuntu-latest

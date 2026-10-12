@@ -11,13 +11,19 @@ import (
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 )
 
+// What the person reads when a typed token fails, here and in the Android app.
+const (
+	MalformedHelp = "Isso não parece um token de conexão. Ele começa com dgv1_ e vem inteiro, numa linha só."
+	RefusedHelp   = "Esse token não foi aceito: o acesso pode ter sido revogado."
+)
+
 var errNoTerminal = errors.New("sem token de conexão e sem terminal para pedir um: use -token dgv1_... ou VPN_TOKEN")
 
 // Ensure returns the connection token to lease with, prompting until the server accepts one,
 // and the lease acquired while validating it, or nil; the caller owns the lease. It fails
 // only when it must prompt and stdin is closed.
 func Ensure(flagToken string) (Token, *profile.Source, error) {
-	candidates := []string{flagToken, os.Getenv("VPN_TOKEN"), readSavedToken()}
+	candidates := []string{flagToken, os.Getenv("VPN_TOKEN"), Saved()}
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -35,21 +41,21 @@ func Ensure(flagToken string) (Token, *profile.Source, error) {
 
 		token, err := Parse(input)
 		if err != nil {
-			fmt.Println("\nIsso não parece um token de conexão. Ele começa com dgv1_ e vem inteiro, numa linha só.")
+			fmt.Println("\n" + MalformedHelp)
 			continue
 		}
 
-		result, lease := validate(token)
+		result, lease := Validate(token.Provisioning())
 		switch result {
-		case accepted:
+		case Accepted:
 			Save(token)
 			return token, lease, nil
 
-		case refused:
-			fmt.Println("\nEsse token não foi aceito: o acesso pode ter sido revogado.")
+		case Refused:
+			fmt.Println("\n" + RefusedHelp)
 			Forget()
 
-		case unavailable:
+		case Unavailable:
 			// Says nothing about the token, so keep it and start anyway: the supervisor
 			// retries with backoff.
 			fmt.Fprintln(os.Stderr, "O servidor de acesso não respondeu agora; vou tentar conectar assim mesmo.")
@@ -70,28 +76,28 @@ func prompt(reader *bufio.Reader) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-type validation int
+type Validation int
 
 const (
-	accepted validation = iota
-	refused
-	unavailable
+	Accepted Validation = iota
+	Refused
+	Unavailable
 )
 
-// validate checks the token by acquiring a real lease. On accepted the caller owns the
+// Validate checks a token by acquiring a real lease. On Accepted the caller owns the
 // returned lease, so startup does not lease a second time.
-func validate(token Token) (validation, *profile.Source) {
-	src, err := profile.Open("", token.Provisioning())
+func Validate(prov profile.Provisioning) (Validation, *profile.Source) {
+	src, err := profile.Open("", prov)
 	if err == nil {
-		return accepted, src
+		return Accepted, src
 	}
 
 	// A refusal discards the saved token, so a 429, a 5xx or no answer at all must never
 	// count as one.
 	if profile.IsRefusal(err) {
-		return refused, nil
+		return Refused, nil
 	}
-	return unavailable, nil
+	return Unavailable, nil
 }
 
 // tokenPath is in the user config dir rather than beside the executable, which on Windows
@@ -104,7 +110,7 @@ func tokenPath() (string, error) {
 	return filepath.Join(base, "discord-go-vpn", "token"), nil
 }
 
-func readSavedToken() string {
+func Saved() string {
 	path, err := tokenPath()
 	if err != nil {
 		return ""

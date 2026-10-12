@@ -4,6 +4,7 @@
 #   make syso      regenerate the Windows resources (manifest, version info, icon)
 #   make test      gofmt, go vet and the test suites
 #   make lint      golangci-lint on Linux and Windows
+#   make android   Android APK (needs the Android SDK and NDK)
 
 BIN     := discord-go-vpn
 PKG     := ./cmd/discord-go-vpn
@@ -13,7 +14,7 @@ DIST    := dist
 GOFLAGS := -trimpath
 LDFLAGS := -buildid=
 
-.PHONY: all dist icon syso lint test clean provisiond
+.PHONY: all dist icon syso lint test clean provisiond android
 
 all:
 	@echo "· $(BIN) (this system)"
@@ -70,6 +71,21 @@ lint:
 provisiond:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $(DIST)/provisiond ./cmd/provisiond
 
+# gomobile bind runs gobind from PATH, so both are built from the versions go.mod pins
+# instead of `go tool`. Needs ANDROID_HOME and ANDROID_NDK_HOME; amd64 is for the emulator.
+MOBILE_BIN := $(CURDIR)/android/build/gomobile
+
+android:
+	@mkdir -p $(MOBILE_BIN) android/app/libs $(DIST)
+	@go build -o $(MOBILE_BIN)/ golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
+	@echo "· mobile.aar"
+	@PATH="$(MOBILE_BIN):$$PATH" gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 26 \
+	  -javapkg=io.github.bumaruf.discordgovpn $(GOFLAGS) -ldflags "$(LDFLAGS)" -o android/app/libs/mobile.aar ./mobile
+	@echo "· apk"
+	@cd android && ./gradlew --no-daemon --quiet assembleRelease
+	@cp android/app/build/outputs/apk/release/app-release.apk $(DIST)/$(BIN).apk
+	@ls -lh $(DIST)/$(BIN).apk
+
 # ./panel is skipped like in go.mod: its node_modules ships third-party .go files.
 test:
 	@unformatted="$$(find . -name '*.go' -not -path './.claude/worktrees/*' -not -path './panel/*' -exec gofmt -l {} +)" || exit 1; \
@@ -84,4 +100,4 @@ test:
 
 clean:
 	rm -f $(BIN) $(BIN).exe $(BIN)-arm64.exe
-	rm -rf $(DIST)
+	rm -rf $(DIST) android/build android/app/build android/app/libs

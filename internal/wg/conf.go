@@ -217,7 +217,7 @@ func (c *Config) UAPI() (string, error) {
 	}
 	fmt.Fprintf(&b, "endpoint=%s\n", endpoint.String())
 
-	for _, cidr := range c.Peer.allowedIPs() {
+	for _, cidr := range c.Peer.EffectiveAllowedIPs() {
 		fmt.Fprintf(&b, "allowed_ip=%s\n", cidr)
 	}
 	if c.Peer.Keepalive > 0 {
@@ -242,7 +242,7 @@ func (c *Config) Conf() string {
 	if c.Peer.PresharedKey != "" {
 		fmt.Fprintf(&b, "PresharedKey = %s\n", c.Peer.PresharedKey)
 	}
-	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(c.Peer.allowedIPs(), ", "))
+	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(c.Peer.EffectiveAllowedIPs(), ", "))
 	fmt.Fprintf(&b, "Endpoint = %s\n", c.Peer.Endpoint)
 	if c.Peer.Keepalive > 0 {
 		fmt.Fprintf(&b, "PersistentKeepalive = %d\n", c.Peer.Keepalive)
@@ -250,7 +250,8 @@ func (c *Config) Conf() string {
 	return b.String()
 }
 
-func (p Peer) allowedIPs() []string {
+// EffectiveAllowedIPs is AllowedIPs, or every address when the .conf leaves it out.
+func (p Peer) EffectiveAllowedIPs() []string {
 	if len(p.AllowedIPs) == 0 {
 		return DefaultAllowedIPs()
 	}
