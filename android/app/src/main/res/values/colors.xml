@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- panel/app/globals.css: --background and --foreground. -->
+    <color name="background">#FF000000</color>
+    <color name="foreground">#FFEDEDED</color>
+</resources>

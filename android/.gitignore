@@ -1,0 +1,7 @@
+.gradle/
+build/
+local.properties
+*.keystore
+*.jks
+# Built by `make android` from ../mobile with gomobile.
+/app/libs/

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text people read is in Brazilian Portuguese; the state labels, errors and the token
+     messages come from the Go side, shared with the desktop client. -->
+<resources>
+    <string name="app_name">discord-go-vpn</string>
+    <string name="tile_label">Discord VPN</string>
+
+    <string name="token_title">Conectar ao servidor</string>
+    <string name="token_intro">Cole o token de conexão que você recebeu. Ele fica salvo neste celular.</string>
+    <string name="token_label">Token de conexão</string>
+    <string name="token_hint">Começa com dgv1_ e vem inteiro, numa linha só.</string>
+    <string name="token_placeholder">dgv1_…</string>
+    <string name="token_new_title">Cole um token de conexão novo</string>
+    <string name="token_use">Usar o token</string>
+    <string name="conf_prompt">Tem um servidor WireGuard próprio?</string>
+    <string name="conf_use">Usar um arquivo .conf</string>
+    <string name="conf_unreadable">Não consegui ler esse arquivo.</string>
+
+    <string name="paste">Colar</string>
+    <string name="connect">Conectar</string>
+    <string name="disconnect">Desconectar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="retry_now">Tentar agora</string>
+    <string name="open_discord">Abrir Discord</string>
+    <string name="change_token">Trocar token</string>
+
+    <string name="row_profile">perfil</string>
+    <string name="row_server">servidor</string>
+    <string name="row_discord">discord</string>
+    <string name="discord_inside">dentro do túnel</string>
+    <string name="discord_outside">fora do túnel</string>
+    <string name="discord_waiting">aguardando</string>
+    <string name="since">há %1$s</string>
+    <string name="attempt_since">tentativa %1$d · há %2$s</string>
+    <string name="fallback_detail">Discord na rede normal, tentando voltar</string>
+    <string name="only_discord">Só o Discord passa pelo túnel. O resto do celular continua na rede normal.</string>
+
+    <string name="vpn_denied">Sem a permissão de VPN do Android não dá para pôr o Discord no túnel.</string>
+    <string name="discord_missing">o Discord não está instalado neste celular</string>
+    <string name="vpn_not_granted">a permissão de VPN não foi concedida</string>
+
+    <string name="notification_channel">Estado do túnel</string>
+    <string name="notification_healthy">Discord dentro do túnel</string>
+    <string name="notification_attempt">tentativa %1$d</string>
+</resources>
