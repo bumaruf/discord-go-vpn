@@ -1,14 +1,16 @@
 import { ObjectId, type Db } from 'mongodb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeCollection, fakeCursor } from './fake-collection'
-import { mergeDevicesWithoutInvite } from './merge-devices'
+import { mergeDevices, planDeviceMerges } from './merge-devices'
 import { COLLECTION } from './mongo-names'
 
-const ORPHAN = new ObjectId('66e2f0a1b2c3d4e5f6a7b8c9')
+const OLD = new ObjectId('66e2f0a1b2c3d4e5f6a7b8c9')
 const CURRENT = new ObjectId('66e2f0a1b2c3d4e5f6a7b8ca')
 const OTHER = new ObjectId('66e2f0a1b2c3d4e5f6a7b8cb')
 const INVITE = new ObjectId('66e2f0a1b2c3d4e5f6a7b8cc')
+const NEW_INVITE = new ObjectId('66e2f0a1b2c3d4e5f6a7b8cd')
 const FIRST_ACCESS = new Date('2026-08-01T10:00:00Z')
+const LAST_ACCESS = new Date('2026-10-01T10:00:00Z')
 
 const devices = fakeCollection()
 const dailyUsage = fakeCollection()
@@ -22,24 +24,37 @@ const collections: Record<string, ReturnType<typeof fakeCollection>> = {
 
 const db = { collection: (name: string) => collections[name].asCollection() } as unknown as Db
 
-function device(id: ObjectId, inviteId: ObjectId | null, osUser: string | null) {
+function device(
+  id: ObjectId,
+  inviteId: ObjectId | null,
+  osUser: string | null,
+  { name = 'laptop', lastSeenAt = FIRST_ACCESS } = {},
+) {
   return {
     _id: id,
     inviteId,
-    name: 'laptop',
+    name,
     osUser,
     firstIp: '198.51.100.7',
     createdAt: FIRST_ACCESS,
-    lastSeenAt: FIRST_ACCESS,
+    lastSeenAt,
     accessCount: 4,
   }
 }
 
-/** The orphans come from the first find; every other find is looking for their candidates. */
-function withDevices(orphans: unknown[], candidates: unknown[]) {
-  devices.find.mockImplementation((filter: Record<string, unknown>) =>
-    fakeCursor(filter.inviteId === null ? orphans : candidates),
-  )
+function withDevices(docs: unknown[]) {
+  devices.find.mockReturnValue(fakeCursor(docs))
+}
+
+async function planIds() {
+  const plan = await planDeviceMerges(db)
+  return {
+    machines: plan.machines.map(({ into, from }) => ({
+      into: into._id,
+      from: from.map((d) => d._id),
+    })),
+    ambiguous: plan.ambiguous.map(({ device, osUsers }) => ({ id: device._id, osUsers })),
+  }
 }
 
 beforeEach(() => {
@@ -52,20 +67,73 @@ beforeEach(() => {
   sessions.updateMany.mockResolvedValue({ modifiedCount: 0 })
 })
 
-describe('mergeDevicesWithoutInvite', () => {
-  it('moves the history of a device without an invite into the machine current device', async () => {
-    withDevices([device(ORPHAN, null, 'ana')], [device(CURRENT, INVITE, 'ana')])
+describe('planDeviceMerges', () => {
+  it('joins one machine across invites, keeping the device seen last', async () => {
+    withDevices([
+      device(OLD, INVITE, 'ana'),
+      device(CURRENT, NEW_INVITE, 'ana', { lastSeenAt: LAST_ACCESS }),
+      device(OTHER, null, 'ana'),
+    ])
+
+    expect(await planIds()).toEqual({
+      machines: [{ into: CURRENT, from: [OLD, OTHER] }],
+      ambiguous: [],
+    })
+  })
+
+  it('ignores case in the name and the os user', async () => {
+    withDevices([
+      device(OLD, INVITE, 'Ana', { name: 'LAPTOP' }),
+      device(CURRENT, INVITE, 'ana', { lastSeenAt: LAST_ACCESS }),
+    ])
+
+    expect((await planIds()).machines).toEqual([{ into: CURRENT, from: [OLD] }])
+  })
+
+  it('places a device without an os user with the only os user of its name', async () => {
+    withDevices([device(OLD, INVITE, null), device(CURRENT, NEW_INVITE, 'ana')])
+
+    expect((await planIds()).machines).toEqual([{ into: CURRENT, from: [OLD] }])
+  })
+
+  it('leaves a device without an os user alone when its name has several', async () => {
+    withDevices([
+      device(OLD, INVITE, null),
+      device(CURRENT, INVITE, 'ana'),
+      device(OTHER, INVITE, 'root'),
+    ])
+
+    expect(await planIds()).toEqual({
+      machines: [],
+      ambiguous: [{ id: OLD, osUsers: ['ana', 'root'] }],
+    })
+  })
+
+  it('keeps different os users and unnamed machines apart', async () => {
+    withDevices([
+      device(OLD, INVITE, 'ana'),
+      device(CURRENT, INVITE, 'root'),
+      device(OTHER, INVITE, 'ana', { name: '' }),
+      device(new ObjectId(), NEW_INVITE, 'ana', { name: '' }),
+    ])
+
+    expect(await planIds()).toEqual({ machines: [], ambiguous: [] })
+  })
+})
+
+describe('mergeDevices', () => {
+  it('moves the history of each device into the one that stays', async () => {
     dailyUsage.find.mockReturnValue(
       fakeCursor([
         {
-          _id: `${ORPHAN.toHexString()}:2026-08-30`,
+          _id: `${OLD.toHexString()}:2026-08-30`,
           day: '2026-08-30',
           rxBytes: 10,
           txBytes: 2,
           onlineSeconds: 60,
         },
         {
-          _id: `${ORPHAN.toHexString()}:2026-08-31`,
+          _id: `${OLD.toHexString()}:2026-08-31`,
           day: '2026-08-31',
           rxBytes: 5,
           txBytes: 1,
@@ -75,11 +143,14 @@ describe('mergeDevicesWithoutInvite', () => {
     )
     sessions.updateMany.mockResolvedValue({ modifiedCount: 3 })
 
-    const report = await mergeDevicesWithoutInvite(db)
+    const merged = await mergeDevices(db, {
+      machines: [{ into: device(CURRENT, NEW_INVITE, 'ana'), from: [device(OLD, INVITE, 'ana')] }],
+      ambiguous: [],
+    })
 
-    expect(report.merged).toEqual([
+    expect(merged).toEqual([
       {
-        from: ORPHAN.toHexString(),
+        from: OLD.toHexString(),
         into: CURRENT.toHexString(),
         name: 'laptop',
         osUser: 'ana',
@@ -87,16 +158,13 @@ describe('mergeDevicesWithoutInvite', () => {
         sessions: 3,
       },
     ])
-    expect(report.waiting).toEqual([])
-    expect(report.ambiguous).toEqual([])
   })
 
   it('deletes each day before adding it, so an interrupted run never counts one twice', async () => {
-    withDevices([device(ORPHAN, null, 'ana')], [device(CURRENT, INVITE, 'ana')])
     dailyUsage.find.mockReturnValue(
       fakeCursor([
         {
-          _id: `${ORPHAN.toHexString()}:2026-08-30`,
+          _id: `${OLD.toHexString()}:2026-08-30`,
           day: '2026-08-30',
           rxBytes: 10,
           txBytes: 2,
@@ -105,12 +173,15 @@ describe('mergeDevicesWithoutInvite', () => {
       ]),
     )
 
-    await mergeDevicesWithoutInvite(db)
+    await mergeDevices(db, {
+      machines: [{ into: device(CURRENT, INVITE, 'ana'), from: [device(OLD, null, 'ana')] }],
+      ambiguous: [],
+    })
 
     expect(dailyUsage.deleteOne.mock.invocationCallOrder[0]).toBeLessThan(
       dailyUsage.updateOne.mock.invocationCallOrder[0],
     )
-    expect(dailyUsage.deleteOne).toHaveBeenCalledWith({ _id: `${ORPHAN.toHexString()}:2026-08-30` })
+    expect(dailyUsage.deleteOne).toHaveBeenCalledWith({ _id: `${OLD.toHexString()}:2026-08-30` })
     expect(dailyUsage.updateOne).toHaveBeenCalledWith(
       { _id: `${CURRENT.toHexString()}:2026-08-30` },
       {
@@ -122,12 +193,13 @@ describe('mergeDevicesWithoutInvite', () => {
   })
 
   it('re-points the sessions, carries the first access over and deletes the merged device', async () => {
-    withDevices([device(ORPHAN, null, 'ana')], [device(CURRENT, INVITE, 'ana')])
-
-    await mergeDevicesWithoutInvite(db)
+    await mergeDevices(db, {
+      machines: [{ into: device(CURRENT, INVITE, 'ana'), from: [device(OLD, null, 'ana')] }],
+      ambiguous: [],
+    })
 
     expect(sessions.updateMany).toHaveBeenCalledWith(
-      { deviceId: ORPHAN.toHexString() },
+      { deviceId: OLD.toHexString() },
       { $set: { deviceId: CURRENT.toHexString() } },
     )
     expect(devices.updateOne).toHaveBeenCalledWith(
@@ -138,60 +210,21 @@ describe('mergeDevicesWithoutInvite', () => {
         $set: { firstIp: '198.51.100.7' },
       },
     )
-    expect(devices.deleteOne).toHaveBeenCalledWith({ _id: ORPHAN })
+    expect(devices.deleteOne).toHaveBeenCalledWith({ _id: OLD })
   })
 
-  it('looks the machine up by a null os user, which also matches a missing one', async () => {
-    withDevices([{ ...device(ORPHAN, null, null), osUser: undefined }], [])
-
-    await mergeDevicesWithoutInvite(db)
-
-    expect(devices.find).toHaveBeenLastCalledWith({
-      name: 'laptop',
-      osUser: null,
-      inviteId: { $ne: null },
-    })
-  })
-
-  it('leaves a device whose machine never came back for provisiond to adopt', async () => {
-    withDevices([device(ORPHAN, null, 'ana')], [])
-
-    const report = await mergeDevicesWithoutInvite(db)
-
-    expect(report.merged).toEqual([])
-    expect(report.waiting).toEqual([
-      { id: ORPHAN.toHexString(), name: 'laptop', osUser: 'ana', candidates: [] },
-    ])
-    expect(devices.deleteOne).not.toHaveBeenCalled()
-  })
-
-  it('leaves a device that matches more than one invite for an admin to decide', async () => {
-    withDevices(
-      [device(ORPHAN, null, 'ana')],
-      [device(CURRENT, INVITE, 'ana'), device(OTHER, INVITE, 'ana')],
-    )
-
-    const report = await mergeDevicesWithoutInvite(db)
-
-    expect(report.merged).toEqual([])
-    expect(report.ambiguous).toEqual([
-      {
-        id: ORPHAN.toHexString(),
-        name: 'laptop',
-        osUser: 'ana',
-        candidates: [CURRENT.toHexString(), OTHER.toHexString()],
-      },
-    ])
-    expect(devices.deleteOne).not.toHaveBeenCalled()
-  })
-
-  it('does nothing when no device is without an invite', async () => {
-    withDevices([], [])
-
-    expect(await mergeDevicesWithoutInvite(db)).toEqual({
-      merged: [],
-      waiting: [],
+  it('gives the device that stays the os user it lacked, after the others are gone', async () => {
+    await mergeDevices(db, {
+      machines: [{ into: device(CURRENT, INVITE, null), from: [device(OLD, INVITE, 'ana')] }],
       ambiguous: [],
     })
+
+    expect(devices.updateOne).toHaveBeenLastCalledWith(
+      { _id: CURRENT },
+      { $set: { osUser: 'ana' } },
+    )
+    expect(devices.deleteOne.mock.invocationCallOrder[0]).toBeLessThan(
+      devices.updateOne.mock.invocationCallOrder.at(-1)!,
+    )
   })
 })

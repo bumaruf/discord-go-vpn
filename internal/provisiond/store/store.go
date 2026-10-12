@@ -154,6 +154,11 @@ func (m *Mongo) RegisterDevice(ctx context.Context, d Device) (string, error) {
 	return registerDevice(ctx, d, m.updateDevice)
 }
 
+// deviceCollation compares device names and os users ignoring case, the same collation as the
+// devices' unique index the panel creates (panel/lib/indexes.ts). A query without it would not
+// use that index, and would miss a device whose name differs only in case.
+var deviceCollation = &options.Collation{Locale: "en", Strength: 2}
+
 // updateDevice updates the most recently seen of the matching devices.
 func (m *Mongo) updateDevice(ctx context.Context, q deviceQuery) (string, error) {
 	var doc struct {
@@ -163,6 +168,7 @@ func (m *Mongo) updateDevice(ctx context.Context, q deviceQuery) (string, error)
 		FindOneAndUpdate(ctx, q.filter, q.update,
 			options.FindOneAndUpdate().
 				SetUpsert(q.upsert).
+				SetCollation(deviceCollation).
 				SetSort(bson.D{{Key: fieldLastSeenAt, Value: -1}}).
 				SetReturnDocument(options.After).
 				SetProjection(bson.M{"_id": 1}),

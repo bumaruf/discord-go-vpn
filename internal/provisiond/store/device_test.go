@@ -65,10 +65,8 @@ func TestRegisterDevice(t *testing.T) {
 		filter[fieldInviteID] = inviteOID
 		return filter
 	}
-	withoutInvite := func(filter bson.M) bson.M {
-		filter[fieldInviteID] = nil
-		return filter
-	}
+	// anyInvite is the filter of a key that finds the machine under whichever invite it has.
+	anyInvite := func(filter bson.M) bson.M { return filter }
 
 	cases := []struct {
 		name    string
@@ -115,35 +113,35 @@ func TestRegisterDevice(t *testing.T) {
 			wantID: "d2",
 		},
 		{
-			name:    "the device the removed global token left is adopted into the invite",
+			name:    "the machine's device under another invite is moved into this one",
 			device:  Device{InviteID: deviceTestInvite, Label: "laptop", OSUser: "ana"},
 			replies: []deviceReply{{}, {}, {id: "d3"}},
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(nil)},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldOSUser: "ana"})},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
 			},
 			wantID: "d3",
 		},
 		{
-			name:    "a null-invite device from before os users is adopted with both filled in",
+			name:    "a device under another invite from before os users is adopted with both filled in",
 			device:  Device{InviteID: deviceTestInvite, Label: "laptop", OSUser: "ana"},
 			replies: []deviceReply{{}, {}, {}, {id: "d4"}},
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(nil)},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldOSUser: "ana"})},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID, fieldOSUser: "ana"})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID, fieldOSUser: "ana"})},
 			},
 			wantID: "d4",
 		},
 		{
-			name:    "a lease without an os user adopts the null-invite device of the same name",
+			name:    "a lease without an os user adopts the same name's device under another invite",
 			device:  Device{InviteID: deviceTestInvite, Label: "laptop"},
 			replies: []deviceReply{{}, {id: "d5"}},
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(nil)},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
 			},
 			wantID: "d5",
 		},
@@ -154,8 +152,8 @@ func TestRegisterDevice(t *testing.T) {
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(nil)},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldOSUser: "ana"})},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID, fieldOSUser: "ana"})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID, fieldOSUser: "ana"})},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: "ana"}), update: insert(inviteOID, "laptop", "ana"), upsert: true},
 			},
 			wantID: "d6",
@@ -166,7 +164,7 @@ func TestRegisterDevice(t *testing.T) {
 			replies: []deviceReply{{}, {}, {err: errDuplicateDevice}, {id: "d7"}},
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(nil)},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: insert(inviteOID, "laptop", nil), upsert: true},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(nil)},
 			},
@@ -189,7 +187,7 @@ func TestRegisterDevice(t *testing.T) {
 			replies: []deviceReply{{}, {}, {err: errDuplicateDevice}, {}, {id: "never asked"}},
 			want: []deviceQuery{
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(nil)},
-				{filter: withoutInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
+				{filter: anyInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(bson.M{fieldInviteID: inviteOID})},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: insert(inviteOID, "laptop", nil), upsert: true},
 				{filter: withInvite(bson.M{fieldName: "laptop", fieldOSUser: nil}), update: access(nil)},
 			},

@@ -1,6 +1,8 @@
 import { MongoClient } from 'mongodb'
+import type { DeviceDocument } from '../lib/devices'
 import { mongodbDb, mongodbUri } from '../lib/env'
-import { mergeDevicesWithoutInvite } from '../lib/merge-devices'
+import { mergeDevices, planDeviceMerges } from '../lib/merge-devices'
+import { FIELD } from '../lib/mongo-names'
 
 async function main() {
   const uri = mongodbUri()
@@ -8,33 +10,33 @@ async function main() {
     console.error('set MONGODB_URI (in panel/.env.local) before merging devices')
     process.exit(1)
   }
+  const dryRun = process.argv.includes('--dry-run')
 
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000 })
   await client.connect()
+  const db = client.db(mongodbDb())
 
-  console.log('==> merging the devices the removed global token left')
-  const { merged, waiting, ambiguous } = await mergeDevicesWithoutInvite(client.db(mongodbDb()))
+  console.log(`==> devices of the same machine${dryRun ? ' (dry run: nothing is written)' : ''}`)
+  const plan = await planDeviceMerges(db)
 
-  for (const m of merged) {
-    console.log(
-      `    ${machine(m)}: ${m.days} day(s) and ${m.sessions} session(s) moved to ${m.into}`,
-    )
+  for (const { into, from } of plan.machines) {
+    console.log(`    ${machine(into)}: keeps ${describe(into)}`)
+    for (const device of from) console.log(`      merges ${describe(device)}`)
   }
-  if (merged.length === 0) console.log('    nothing to merge')
+  if (plan.machines.length === 0) console.log('    nothing to merge')
 
-  if (waiting.length > 0) {
-    console.log('\n==> left alone: the machine has not leased through an invite yet')
-    console.log('    provisiond adopts each of these on its next lease, keeping its history')
-    for (const w of waiting) console.log(`    ${machine(w)}: ${w.id}`)
+  if (plan.ambiguous.length > 0) {
+    console.log('\n==> left alone: a device without an os user whose name has several os users')
+    console.log('    merging would hand one person the history of another, so pick by hand')
+    for (const { device, osUsers } of plan.ambiguous) {
+      console.log(`    ${describe(device)}: os users ${osUsers.join(', ')}`)
+    }
   }
 
-  if (ambiguous.length > 0) {
-    console.log(
-      '\n==> left alone: the same name and os user is registered under more than one invite',
-    )
-    console.log('    merging would hand one machine the history of another, so pick by hand')
-    for (const a of ambiguous) {
-      console.log(`    ${machine(a)}: ${a.id} matches ${a.candidates.join(', ')}`)
+  if (!dryRun && plan.machines.length > 0) {
+    console.log('\n==> merging')
+    for (const m of await mergeDevices(db, plan)) {
+      console.log(`    ${m.from} -> ${m.into}: ${m.days} day(s) and ${m.sessions} session(s) moved`)
     }
   }
 
@@ -42,8 +44,16 @@ async function main() {
   await client.close()
 }
 
-function machine({ name, osUser }: { name: string; osUser: string | null }): string {
-  return osUser ? `${name || '(unnamed)'}/${osUser}` : name || '(unnamed)'
+function machine(device: DeviceDocument): string {
+  const name = device[FIELD.name] || '(unnamed)'
+  const osUser = device[FIELD.osUser]
+  return osUser ? `${name}/${osUser}` : name
+}
+
+function describe(device: DeviceDocument): string {
+  const invite = device[FIELD.inviteId]?.toHexString() ?? 'no invite'
+  const seen = device[FIELD.lastSeenAt].toISOString().slice(0, 10)
+  return `${device[FIELD.id].toHexString()} (${machine(device)}, invite ${invite}, seen ${seen})`
 }
 
 main().catch((error) => {

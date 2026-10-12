@@ -31,6 +31,8 @@ import { DeviceDetail } from './device-detail'
 import {
   filterDevices,
   filtersToParams,
+  INACTIVE_AFTER_DAYS,
+  isInactive,
   parseFilters,
   sortDevices,
   type DeviceFilters,
@@ -90,8 +92,12 @@ export function DeviceList({
     window.history.replaceState(null, '', withQuery(filtersToParams(next, listParams)))
   const clearFilters = () =>
     setFilters({ ...filters, query: '', status: 'all', invites: [], group: false })
+  const showInactive = () => setFilters({ ...filters, inactive: true })
 
-  const shown = sortDevices(filterDevices(listed, filters, inviteLabels), filters)
+  // The stream's clock, so the list changes only when a snapshot arrives.
+  const now = Date.parse(snapshot.generated_at) || undefined
+  const inactive = listed.filter((device) => isInactive(device, now)).length
+  const shown = sortDevices(filterDevices(listed, filters, inviteLabels, now), filters)
   const groups = filters.group
     ? groupByInvite(shown, inviteLabels)
     : [{ id: 'all', label: '', devices: shown }]
@@ -155,6 +161,7 @@ export function DeviceList({
           }))}
           shown={shown.length}
           total={listed.length}
+          inactive={inactive}
           onChange={setFilters}
         />
       ) : null}
@@ -172,6 +179,23 @@ export function DeviceList({
                 e continua nela depois de desconectar.
               </EmptyDescription>
             </EmptyHeader>
+          </Empty>
+        ) : shown.length === 0 && listed.length === inactive && !filters.inactive ? (
+          <Empty className="py-16">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MonitorOff />
+              </EmptyMedia>
+              <EmptyTitle>Ninguém conectou nos últimos {INACTIVE_AFTER_DAYS} dias</EmptyTitle>
+              <EmptyDescription>
+                As máquinas que não conectam há mais tempo ficam ocultas.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="outline" size="sm" onClick={showInactive}>
+                Mostrar {machines(inactive)} inativas
+              </Button>
+            </EmptyContent>
           </Empty>
         ) : shown.length === 0 ? (
           <Empty className="py-16">

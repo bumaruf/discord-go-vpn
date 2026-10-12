@@ -22,11 +22,14 @@ type deviceQuery struct {
 // nothing matched.
 type updateDevice func(ctx context.Context, q deviceQuery) (id string, err error)
 
-// deviceKey identifies a device: its name and os user, within its invite.
+// deviceKey identifies a device: its name and os user, within its invite. Names compare
+// ignoring case (deviceCollation).
 type deviceKey struct {
 	invite any // bson.ObjectID, or nil on a device the removed global token left behind
-	name   string
-	osUser any // string, or nil when the client sent none
+	// anyInvite matches the machine under whichever invite it was registered with.
+	anyInvite bool
+	name      string
+	osUser    any // string, or nil when the client sent none
 }
 
 // registerDevice records an access of d's device and returns its id, or empty for an invite id
@@ -66,17 +69,18 @@ func findOrInsertDevice(ctx context.Context, d Device, key deviceKey, update upd
 }
 
 // olderKeys are the keys the same machine may still be registered under, the most specific
-// first: devices registered before clients sent an os user have none, and devices the removed
-// global token left have a null invite, since it identified nobody. Adopting the latter is what
-// keeps a machine's usage history, which is grouped by device id, whole across that removal.
+// first: devices registered before clients sent an os user have none, and a machine that leased
+// through another invite (one revoked or deleted, a global one, or the null invite the removed
+// global token left) is still the same machine. Adopting it is what keeps a machine's usage
+// history, which is grouped by device id, whole when its invite changes.
 func (k deviceKey) olderKeys() []deviceKey {
 	older := []deviceKey{}
 	if k.osUser != nil {
 		older = append(older, deviceKey{invite: k.invite, name: k.name})
 	}
-	older = append(older, deviceKey{name: k.name, osUser: k.osUser})
+	older = append(older, deviceKey{anyInvite: true, name: k.name, osUser: k.osUser})
 	if k.osUser != nil {
-		older = append(older, deviceKey{name: k.name})
+		older = append(older, deviceKey{anyInvite: true, name: k.name})
 	}
 	return older
 }
@@ -86,7 +90,7 @@ func (k deviceKey) olderKeys() []deviceKey {
 func (k deviceKey) adopt(older deviceKey, d Device) bson.M {
 	update := deviceAccess(d)
 	set := update["$set"].(bson.M)
-	if older.invite == nil {
+	if older.anyInvite {
 		set[fieldInviteID] = k.invite
 	}
 	if older.osUser == nil && k.osUser != nil {
@@ -109,7 +113,11 @@ func (k deviceKey) insert(d Device) bson.M {
 
 // filter also matches a missing field where the key part is nil.
 func (k deviceKey) filter() bson.M {
-	return bson.M{fieldInviteID: k.invite, fieldName: k.name, fieldOSUser: k.osUser}
+	filter := bson.M{fieldName: k.name, fieldOSUser: k.osUser}
+	if !k.anyInvite {
+		filter[fieldInviteID] = k.invite
+	}
+	return filter
 }
 
 // deviceAccess sets the last access and counts it.
