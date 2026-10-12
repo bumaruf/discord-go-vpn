@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -10,15 +11,18 @@ import (
 
 	"github.com/bumaruf/discord-go-vpn/internal/app"
 	"github.com/bumaruf/discord-go-vpn/internal/connectiontoken"
+	"github.com/bumaruf/discord-go-vpn/internal/errtext"
 	"github.com/bumaruf/discord-go-vpn/internal/platform/console"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
+	"github.com/bumaruf/discord-go-vpn/internal/update"
 )
 
 func main() {
 	configPath := flag.String("c", "", "perfil .conf do WireGuard (o padrão é procurar na pasta do programa)")
 	discordPath := flag.String("discord", "", "caminho do executável do Discord (quando a busca automática não acha)")
 	tokenFlag := flag.String("token", "", "atalho: o token de conexão dgv1_... (o padrão é pedir no terminal)")
+	noUpdate := flag.Bool("no-update", false, "não procurar uma versão nova ao abrir")
 	flag.Usage = func() { printUsage(flag.CommandLine) }
 	flag.Parse()
 
@@ -38,6 +42,17 @@ func main() {
 	// The .exe manifest already requests elevation; this covers a build without it.
 	if mode == routing.ModeWiresock {
 		console.EnsureElevated()
+	}
+
+	// Before the tunnel exists, so updating never drops a call.
+	if !*noUpdate {
+		code, replaced, err := update.Run(context.Background(), os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "não consegui atualizar: %s\n", errtext.Translate(err))
+		}
+		if replaced {
+			exitWith(code)
+		}
 	}
 
 	// A .conf needs no server, so the token is asked for only without one.

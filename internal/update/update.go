@@ -1,0 +1,195 @@
+package update
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"time"
+
+	"golang.org/x/mod/semver"
+)
+
+// Version is set from the release tag by the Makefile; "dev" never updates.
+var Version = "dev"
+
+// publicKey verifies update.json.sig. Empty disables updates: docs in README.md → Atualização automática.
+const publicKey = ""
+
+const releasesURL = "https://github.com/bumaruf/discord-go-vpn/releases"
+
+// relaunchedEnv marks the process Run started, so a release whose binary still
+// reports the old version cannot loop.
+const relaunchedEnv = "VPN_UPDATE_RELAUNCHED"
+
+const (
+	checkTimeout    = 10 * time.Second
+	downloadTimeout = 5 * time.Minute
+	maxManifestSize = 64 << 10
+)
+
+type updater struct {
+	client      *http.Client
+	releasesURL string
+	version     string
+	publicKey   string
+	platform    string
+}
+
+// Run installs a newer release over the running executable and runs it in this
+// process's place. replaced reports that the executable changed: the caller must
+// then exit with code, even with an error, which means the relaunch failed.
+// Without a newer release, or in a dev build, it returns nothing to do.
+func Run(ctx context.Context, w io.Writer) (code int, replaced bool, err error) {
+	if os.Getenv(relaunchedEnv) != "" {
+		_ = os.Unsetenv(relaunchedEnv)
+		return 0, false, nil
+	}
+	u := updater{
+		client:      http.DefaultClient,
+		releasesURL: releasesURL,
+		version:     Version,
+		publicKey:   publicKey,
+		platform:    Platform(runtime.GOOS, runtime.GOARCH),
+	}
+	if !u.enabled() {
+		return 0, false, nil
+	}
+
+	exe, err := executable()
+	if err != nil {
+		return 0, false, err
+	}
+	removeLeftover(exe)
+
+	m, asset, err := u.check(ctx)
+	if err != nil || asset == nil {
+		return 0, false, err
+	}
+	fmt.Fprintf(w, "nova versão %s disponível (esta é a %s), baixando…\n", m.Version, u.version)
+	downloaded, err := u.download(ctx, m.Version, *asset, filepath.Dir(exe))
+	if err != nil {
+		return 0, false, err
+	}
+	if err := replace(exe, downloaded); err != nil {
+		_ = os.Remove(downloaded)
+		return 0, false, fmt.Errorf("não consegui substituir %s: %w", exe, err)
+	}
+
+	fmt.Fprintf(w, "atualizado para %s, reiniciando…\n", m.Version)
+	code, err = relaunch(exe, append(os.Environ(), relaunchedEnv+"=1"))
+	if err != nil {
+		return 1, true, fmt.Errorf("a versão %s foi instalada, mas não consegui reabrir o programa (abra de novo): %w", m.Version, err)
+	}
+	return code, true, nil
+}
+
+func (u updater) enabled() bool {
+	return u.publicKey != "" && semver.IsValid(u.version)
+}
+
+// check returns the latest manifest and this platform's asset, or a nil asset
+// when the release is not newer or has no build for this platform.
+func (u updater) check(ctx context.Context) (Manifest, *Asset, error) {
+	key, err := parsePublicKey(u.publicKey)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+
+	// latest/download redirects to the newest release without the API's rate limit.
+	manifest, err := u.fetch(ctx, u.releasesURL+"/latest/download/"+ManifestName)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	signature, err := u.fetch(ctx, u.releasesURL+"/latest/download/"+SignatureName)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	m, err := Verify(manifest, signature, key)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	if semver.Compare(m.Version, u.version) <= 0 {
+		return m, nil, nil
+	}
+	asset, ok := m.Assets[u.platform]
+	if !ok {
+		return m, nil, nil
+	}
+	return m, &asset, nil
+}
+
+func (u updater) fetch(ctx context.Context, url string) ([]byte, error) {
+	resp, err := u.get(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, maxManifestSize))
+}
+
+func (u updater) get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("não consegui falar com o GitHub: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("o GitHub respondeu HTTP %d para %s", resp.StatusCode, url)
+	}
+	return resp, nil
+}
+
+// download writes the asset into dir, beside the executable, so replacing it is
+// a rename on the same file system, and returns the file only if its size and
+// SHA-256 match the signed manifest.
+func (u updater) download(ctx context.Context, version string, asset Asset, dir string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+
+	resp, err := u.get(ctx, u.releasesURL+"/download/"+version+"/"+asset.Name)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	f, err := os.CreateTemp(dir, ".discord-go-vpn-update-*")
+	if err != nil {
+		return "", fmt.Errorf("não consegui gravar a atualização em %s: %w", dir, err)
+	}
+	hash := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(f, hash), io.LimitReader(resp.Body, asset.Size+1))
+	closeErr := f.Close()
+	err = errors.Join(copyErr, closeErr)
+	if err == nil && (n != asset.Size || hex.EncodeToString(hash.Sum(nil)) != asset.SHA256) {
+		err = errors.New("o arquivo baixado não confere com o manifesto assinado")
+	}
+	if err == nil {
+		err = os.Chmod(f.Name(), 0o755)
+	}
+	if err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("download da versão %s falhou: %w", version, err)
+	}
+	return f.Name(), nil
+}
+
+func executable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
