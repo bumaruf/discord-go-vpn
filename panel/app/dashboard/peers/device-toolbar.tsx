@@ -13,7 +13,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { hiddenFilterCount, type DeviceFilters, type StatusFilter } from './device-filters'
+import {
+  hiddenFilterCount,
+  INACTIVE_AFTER_DAYS,
+  type DeviceFilters,
+  type StatusFilter,
+} from './device-filters'
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: 'Todas',
@@ -32,12 +37,15 @@ export function DeviceToolbar({
   invites,
   shown,
   total,
+  inactive,
   onChange,
 }: {
   filters: DeviceFilters
   invites: InviteOption[]
   shown: number
   total: number
+  /** How many machines haven't connected for `INACTIVE_AFTER_DAYS`, shown or not. */
+  inactive: number
   onChange: (filters: DeviceFilters) => void
 }) {
   const update = (change: Partial<DeviceFilters>) => onChange({ ...filters, ...change })
@@ -109,6 +117,13 @@ export function DeviceToolbar({
             >
               Agrupar por convite
             </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={filters.inactive}
+              onCheckedChange={(inactive) => update({ inactive })}
+            >
+              Mostrar inativas
+              <span className="ml-auto text-muted-foreground tabular-nums">{inactive}</span>
+            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -131,15 +146,33 @@ export function DeviceToolbar({
           {filters.group ? (
             <FilterChip label="Agrupado por convite" onRemove={() => update({ group: false })} />
           ) : null}
+          {filters.inactive ? (
+            <FilterChip label="Com inativas" onRemove={() => update({ inactive: false })} />
+          ) : null}
           <Button
             variant="link"
             size="sm"
             className="h-auto px-1 text-muted-foreground"
-            onClick={() => update({ invites: [], group: false })}
+            onClick={() => update({ invites: [], group: false, inactive: false })}
           >
             Limpar filtros
           </Button>
         </div>
+      ) : null}
+
+      {!filters.inactive && inactive > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {inactive} {inactive === 1 ? 'máquina oculta' : 'máquinas ocultas'} por não conectar há
+          mais de {INACTIVE_AFTER_DAYS} dias.{' '}
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0"
+            onClick={() => update({ inactive: true })}
+          >
+            Mostrar
+          </Button>
+        </p>
       ) : null}
     </div>
   )

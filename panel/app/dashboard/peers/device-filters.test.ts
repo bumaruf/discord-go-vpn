@@ -4,16 +4,27 @@ import {
   filterDevices,
   filtersToParams,
   hiddenFilterCount,
+  isInactive,
   parseFilters,
   sortDevices,
   type DeviceFilters,
 } from './device-filters'
 import type { ListedDevice } from './listed-devices'
 
-const DEFAULTS: DeviceFilters = { query: '', status: 'all', invites: [], group: false, dir: 'asc' }
+const DEFAULTS: DeviceFilters = {
+  query: '',
+  status: 'all',
+  invites: [],
+  group: false,
+  inactive: false,
+  dir: 'asc',
+}
+
+const NOW = Date.parse('2026-10-12T12:00:00Z')
+const daysAgo = (days: number) => new Date(NOW - days * 24 * 60 * 60 * 1000).toISOString()
 
 function device(id: string, extra: Partial<ListedDevice> = {}): ListedDevice {
-  return { id, name: id, ...extra }
+  return { id, name: id, lastSeenAt: daysAgo(1), ...extra }
 }
 
 function peer(extra: Partial<LivePeer> = {}): LivePeer {
@@ -45,6 +56,7 @@ describe('parseFilters and filtersToParams', () => {
       status: 'offline',
       invites: ['inv-1', ''],
       group: true,
+      inactive: true,
       sort: 'traffic',
       dir: 'desc',
     }
@@ -66,9 +78,10 @@ describe('parseFilters and filtersToParams', () => {
 })
 
 describe('hiddenFilterCount', () => {
-  it('counts each invite and the grouping, which live behind the Filters button', () => {
+  it('counts each invite, the grouping and the inactive machines, behind the Filters button', () => {
     expect(hiddenFilterCount({ ...DEFAULTS, query: 'x', status: 'online' })).toBe(0)
     expect(hiddenFilterCount({ ...DEFAULTS, invites: ['a', ''], group: true })).toBe(3)
+    expect(hiddenFilterCount({ ...DEFAULTS, inactive: true })).toBe(1)
   })
 })
 
@@ -81,7 +94,8 @@ describe('filterDevices', () => {
   const labels = { friends: 'Amigos', family: 'Família' }
 
   it('searches name, OS user, IPs and invite, ignoring case and accents', () => {
-    const search = (query: string) => ids(filterDevices(devices, { ...DEFAULTS, query }, labels))
+    const search = (query: string) =>
+      ids(filterDevices(devices, { ...DEFAULTS, query }, labels, NOW))
 
     expect(search('joao')).toEqual(['desktop'])
     expect(search('10.9.0.4')).toEqual(['desktop'])
@@ -95,7 +109,7 @@ describe('filterDevices', () => {
   it('filters by status, a peer that lost its handshake counting as off the tunnel', () => {
     const withStale = [...devices, device('stale', { peer: peer({ online: false }) })]
     const status = (s: DeviceFilters['status']) =>
-      ids(filterDevices(withStale, { ...DEFAULTS, status: s }, labels))
+      ids(filterDevices(withStale, { ...DEFAULTS, status: s }, labels, NOW))
 
     expect(status('online')).toEqual(['desktop'])
     expect(status('offline')).toEqual(['notebook', 'orphan', 'stale'])
@@ -103,7 +117,34 @@ describe('filterDevices', () => {
 
   it('keeps only the chosen invites, with "" for the machines without one', () => {
     const filters = { ...DEFAULTS, invites: ['family', ''] }
-    expect(ids(filterDevices(devices, filters, labels))).toEqual(['notebook', 'orphan'])
+    expect(ids(filterDevices(devices, filters, labels, NOW))).toEqual(['notebook', 'orphan'])
+  })
+
+  it('hides the machines off the tunnel for more than 5 days unless asked for', () => {
+    const withOld = [
+      ...devices,
+      device('old', { lastSeenAt: daysAgo(6) }),
+      device('leasing', { lastSeenAt: daysAgo(30), peer: peer({ online: false }) }),
+    ]
+
+    expect(ids(filterDevices(withOld, DEFAULTS, labels, NOW))).toEqual([
+      'desktop',
+      'notebook',
+      'orphan',
+      'leasing',
+    ])
+    expect(ids(filterDevices(withOld, { ...DEFAULTS, inactive: true }, labels, NOW))).toContain(
+      'old',
+    )
+  })
+})
+
+describe('isInactive', () => {
+  it('counts from the last time seen, and never while the machine holds a lease', () => {
+    expect(isInactive(device('a', { lastSeenAt: daysAgo(5) }), NOW)).toBe(false)
+    expect(isInactive(device('a', { lastSeenAt: daysAgo(5.1) }), NOW)).toBe(true)
+    expect(isInactive(device('a', { lastSeenAt: undefined }), NOW)).toBe(true)
+    expect(isInactive(device('a', { lastSeenAt: daysAgo(9), peer: peer() }), NOW)).toBe(false)
   })
 })
 

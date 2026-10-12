@@ -2,6 +2,10 @@ import { deviceName } from './device-name'
 import { inviteLabel, type InviteLabels } from './invite-groups'
 import type { ListedDevice } from './listed-devices'
 
+/** Off the tunnel for longer than this, a machine leaves the list unless `inactive` is set. */
+export const INACTIVE_AFTER_DAYS = 5
+const DAY_MS = 24 * 60 * 60 * 1000
+
 export type StatusFilter = 'all' | 'online' | 'offline'
 export type SortKey = 'name' | 'traffic' | 'session'
 export type SortDir = 'asc' | 'desc'
@@ -13,6 +17,8 @@ export interface DeviceFilters {
   /** Invite ids to show; `''` stands for the devices without an invite. Empty shows every invite. */
   invites: string[]
   group: boolean
+  /** Also shows the machines that haven't connected for `INACTIVE_AFTER_DAYS`. */
+  inactive: boolean
   /** Missing is the default order: whoever is on the tunnel first, then by name. */
   sort?: SortKey
   dir: SortDir
@@ -22,7 +28,7 @@ export interface DeviceFilters {
 const NO_INVITE_PARAM = 'none'
 
 /** The query string keys this page owns, besides `device`. */
-const FILTER_PARAMS = ['q', 'status', 'invite', 'group', 'sort', 'dir']
+const FILTER_PARAMS = ['q', 'status', 'invite', 'group', 'inactive', 'sort', 'dir']
 
 const STATUSES: StatusFilter[] = ['all', 'online', 'offline']
 const SORT_KEYS: SortKey[] = ['name', 'traffic', 'session']
@@ -37,6 +43,7 @@ export function parseFilters(params: URLSearchParams): DeviceFilters {
     status: STATUSES.includes(status) ? status : 'all',
     invites: invites ? invites.split(',').map((id) => (id === NO_INVITE_PARAM ? '' : id)) : [],
     group: params.get('group') === '1',
+    inactive: params.get('inactive') === '1',
     sort: SORT_KEYS.includes(sort) ? sort : undefined,
     dir: params.get('dir') === 'desc' ? 'desc' : 'asc',
   }
@@ -53,6 +60,7 @@ export function filtersToParams(filters: DeviceFilters, params: URLSearchParams)
     next.set('invite', filters.invites.map((id) => id || NO_INVITE_PARAM).join(','))
   }
   if (filters.group) next.set('group', '1')
+  if (filters.inactive) next.set('inactive', '1')
   if (filters.sort) {
     next.set('sort', filters.sort)
     if (filters.dir === 'desc') next.set('dir', 'desc')
@@ -62,18 +70,27 @@ export function filtersToParams(filters: DeviceFilters, params: URLSearchParams)
 
 /** How many filters narrow the list, for the badge on the button that holds the hidden ones. */
 export function hiddenFilterCount(filters: DeviceFilters): number {
-  return filters.invites.length + Number(filters.group)
+  return filters.invites.length + Number(filters.group) + Number(filters.inactive)
+}
+
+/** A machine holding a lease is active however long ago it leased. */
+export function isInactive(device: ListedDevice, now = Date.now()): boolean {
+  if (device.peer) return false
+  const seen = device.lastSeenAt ? Date.parse(device.lastSeenAt) : NaN
+  return !(now - seen <= INACTIVE_AFTER_DAYS * DAY_MS)
 }
 
 export function filterDevices(
   devices: ListedDevice[],
   filters: DeviceFilters,
   inviteLabels: InviteLabels,
+  now = Date.now(),
 ): ListedDevice[] {
   const terms = normalize(filters.query).split(/\s+/).filter(Boolean)
   const invites = new Set(filters.invites)
 
   return devices.filter((device) => {
+    if (!filters.inactive && isInactive(device, now)) return false
     const online = device.peer?.online ?? false
     if (filters.status === 'online' && !online) return false
     if (filters.status === 'offline' && online) return false
