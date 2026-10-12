@@ -10,7 +10,7 @@ O texto que o usuário final lê continua em pt-BR (TUI, CLI, painel). O glossá
 | convite individual | individual invite | Convite de uma pessoa. Tipo `individual`, o padrão de um convite sem tipo gravado. |
 | convite global, token global | global invite | Convite compartilhado por várias pessoas. Tipo `global`. A diferença para o individual é só de organização. |
 | token de conexão | connection token | O que quem usa recebe e cola no cliente: `dgv1_` + base64url de `{server, fingerprint, invite}`. Leva o endereço do `provisiond`, a impressão digital do certificado e o convite. |
-| dispositivo | device | Uma máquina e quem a usa: o nome do computador que o cliente envia mais o usuário do sistema. Fica sempre dentro de um convite. |
+| dispositivo | device | Uma máquina e quem a usa: o nome do computador que o cliente envia mais o usuário do sistema, sem diferenciar maiúsculas. Fica dentro do último convite pelo qual a máquina entrou. |
 | usuário do sistema | os user | A conta do sistema operacional que roda o Discord: `SUDO_USER` no Linux, o usuário da sessão da área de trabalho no Windows. |
 | aluguel, acesso | lease | Peer WireGuard temporário que o `provisiond` concede a uma execução do cliente. Tem prazo de validade e é renovado enquanto o cliente roda. |
 | sessão | session | Registro, no banco, de um lease em uso: tráfego, origem, último handshake. |
@@ -34,7 +34,8 @@ O texto que o usuário final lê continua em pt-BR (TUI, CLI, painel). O glossá
 | usuário | user | Quem usa a VPN. Em amostras e consumo, é o escopo por identidade. |
 | identidade | identity | Chave de agregação do consumo: o id do dispositivo, `peer:<chave>` quando não há banco para registrá-lo, ou o servidor. |
 | sem nome | unnamed | Dispositivo cujo cliente não enviou rótulo. |
-| adotar | adopt | Trazer para a chave atual um dispositivo gravado sob uma chave antiga (sem usuário do sistema, ou com o convite nulo que o token global deixou), preenchendo o que falta nela. O consumo continua no mesmo id. |
+| adotar | adopt | Trazer para a chave atual um dispositivo da mesma máquina gravado sob uma chave antiga (sem usuário do sistema, ou sob outro convite, inclusive o nulo que o token global deixou), preenchendo o que falta nela. O consumo continua no mesmo id. |
+| inativo | inactive | Dispositivo sem lease que não conecta há mais de 5 dias. A página "Quem está usando" o esconde até o admin pedir para ver. |
 | túnel | tunnel | O túnel WireGuard por onde passa o Discord, levantado pelo transporte do cliente. |
 | perfil | profile | Configuração WireGuard que o cliente usa: um `.conf` na pasta ou a que vem de um lease. |
 | bandeja | tray | Ícone do cliente na área de notificação do Windows. |

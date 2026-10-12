@@ -87,16 +87,21 @@ npm run setup                  # cria coleções e índices (idempotente)
 npm run dev
 ```
 
-Uma vez, em produção, para juntar o histórico que a saída do token global partiu (idempotente):
+Para juntar os dispositivos repetidos da mesma máquina (idempotente):
 
 ```sh
+npm run merge-devices -- --dry-run   # só mostra o que juntaria
 npm run merge-devices
+npm run setup                        # troca o índice único pelo que ignora maiúsculas
 ```
 
-Ele soma no dispositivo atual o consumo diário do antigo, de `inviteId` nulo, repõe o `deviceId`
-das sessões, leva o primeiro acesso junto e apaga o antigo. Não mescla o dispositivo que casa com
-mais de um convite: imprime quais são, para o dono decidir. As `samples` ficam de fora, porque
-expiram em 48 h.
+Uma máquina é o nome do computador mais o usuário do sistema, sem diferenciar maiúsculas, em
+qualquer convite. O dispositivo visto por último fica: recebe o consumo diário dos outros, o
+`deviceId` das sessões e o primeiro acesso, e os outros são apagados. Um dispositivo sem usuário do
+sistema entra na máquina do único usuário com aquele nome; se houver mais de um, o script só o
+lista, para o dono decidir. Máquinas sem nome nunca são juntadas. As `samples` ficam de fora, porque
+expiram em 48 h. O `setup` falha, sem mexer no índice antigo, enquanto houver dispositivos que só
+diferem em maiúsculas.
 
 Antes de abrir um PR:
 
@@ -214,7 +219,7 @@ lib/
   token.ts                gera o código do convite e o hash que o provisiond reconhece
   connection-token.ts     monta o token de conexão `dgv1_…` que o cliente decodifica
   usage.ts                repositório do histórico de consumo (diário e do mês)
-  merge-devices.ts        junta o consumo das máquinas que a saída do token global partiu em duas
+  merge-devices.ts        junta os dispositivos repetidos de uma máquina, com o consumo
   usage-days.ts           `USAGE_DAYS`, a janela do gráfico diário, importável do navegador
   live-snapshot.ts        formato do stream
   live-stream.ts          lê os eventos do stream
