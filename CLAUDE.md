@@ -14,13 +14,13 @@ The code grew faster than its conventions. Only the rules under **Decisions** we
 - **Renames keep the old name working.** When a route, JSON key, ticket field, env var, flag, file on disk or in the volume, or Mongo collection, field or value gets a new name, the code accepts both and the pair goes into `docs/legacy.md` in the same PR, creating the file if it doesn't exist. Legacy is removed in one pass, when the owner judges every user has migrated; until then Mongo keeps its old names.
 - **DRY and Clean Code** are the standards for architecture and code organization.
 - **Comments only where they are necessary.** A comment earns its place by saying what the code can't: why a surprising choice was made, a non-obvious constraint or gotcha, a contract with another component. Clear code stays uncommented. Keep each comment short and each fact in one place — not restated at every call site, in the package doc and in the README.
-- **Commits:** `type(scope): description`, in English. Scopes: `client`, `panel`, `provisiond`, `server`, `tray`, `docs`, `contracts` (Go and TypeScript changed together), `ci`.
+- **Commits:** `type(scope): description`, in English. Scopes: `client`, `android`, `panel`, `provisiond`, `server`, `tray`, `docs`, `contracts` (Go and TypeScript changed together), `ci`.
 
 ## What this is
 
 Three deliverables in one repository, talking over the network:
 
-- **Client** (`cmd/discord-go-vpn` + `internal/`) — runs the whole Discord process inside a WireGuard tunnel: a network namespace on Linux, the WireSock WFP filter on Windows, so gateway and media (WebRTC over UDP) leave from the same IP.
+- **Client** (`cmd/discord-go-vpn` + `internal/`) — runs the whole Discord process inside a WireGuard tunnel: a network namespace on Linux, the WireSock WFP filter on Windows, so gateway and media (WebRTC over UDP) leave from the same IP. The **Android app** (`android/` + `mobile/`) is the same client on a phone.
 - **`provisiond`** (`cmd/provisiond` + `internal/provisiond/`) — runs on the VPS via `server/` (Docker Compose). Hands out short-lived WireGuard peer leases (`wg set`), collects metrics, serves live SSE and the admin routes.
 - **Panel** (`panel/`) — Next.js 16 on Vercel + MongoDB Atlas, admin-only. It has its own `panel/AGENTS.md`: this Next version differs from what the model knows; read `node_modules/next/dist/docs/` before writing code there.
 
@@ -31,7 +31,7 @@ Reference docs, so this file doesn't duplicate them:
 
 ## Commands
 
-CI (`.github/workflows/ci.yml`, on pull requests and pushes to `main`) runs `make test`, `make lint` and the panel's `npm ci`, `lint`, `typecheck`, `format:check`, `test` and `build` — keep them all green locally before pushing. It sets no secrets, so integration tests skip there too. A push to `main` that changes provisiond's image then calls `deploy-server.yml`, which publishes it to GHCR and runs `server/deploy.sh` on the VPS (`server/README.md` → *Deploy contínuo*).
+CI (`.github/workflows/ci.yml`, on pull requests and pushes to `main`) runs `make test`, `make lint`, `make android` and the panel's `npm ci`, `lint`, `typecheck`, `format:check`, `test` and `build` — keep them all green locally before pushing. It sets no secrets, so integration tests skip there too. A push to `main` that changes provisiond's image then calls `deploy-server.yml`, which publishes it to GHCR and runs `server/deploy.sh` on the VPS (`server/README.md` → *Deploy contínuo*).
 
 Go (repo root; `go.mod` has `ignore ./panel` so `./...` stays out of `node_modules`):
 
@@ -42,6 +42,7 @@ make provisiond      # linux server binary into dist/
 make test            # fails on unformatted Go files, go vet (Linux and GOOS=windows), go test ./... (internal and cmd), the server/*_test.sh scripts (compose_test.sh skips without docker compose or jq)
 make syso            # regenerate Windows resources (manifest, version info, icon); the .syso files are committed
 make lint            # golangci-lint v2.13.2 (pinned, via go run) on Linux and GOOS=windows; config in .golangci.yml
+make android         # gomobile bind of ./mobile into android/app/libs/mobile.aar, then assembleRelease into dist/; needs ANDROID_HOME and ANDROID_NDK_HOME
 
 go test ./internal/wg -run TestName -count=1   # single test
 ```
@@ -60,7 +61,7 @@ Panel (`panel/`): `npm run dev`, `npm run lint` (fails on warnings), `npm run ty
 
 Flow: `main.go` (flags and wiring) → without a `.conf`, `connectiontoken.Ensure` (prompt, validation, saved file) → `app.Run` → `supervisor.Run` → on each connection, `profile.Open` + `transport.New(mode, reporter)`. Startup leases once: the lease that validated the connection token (or `app.Run`'s first `profile.Open`) is handed along and used by the supervisor's first connection; reconnections lease afresh.
 
-Packages in `internal/`: `connectiontoken`, `app` (runs the TUI, or plain text when it can't draw, and the tray), `supervisor`, `profile`, `transport`, `routing` (the routing modes), `wg` (`.conf` parsing), `discord` (finding, closing and reopening Discord), `ui`, `errtext`, `platform/{console,tray,tasklist,osuser}` (`osuser` names the OS user sent with a lease); `contracttest` checks `testdata/contracts/`, and `profile/profiletest` is the fake `provisiond` shared by tests.
+Packages in `internal/`: `connectiontoken`, `app` (runs the TUI, or plain text when it can't draw, and the tray), `statustext` (state labels and status texts every front end shows), `supervisor`, `profile`, `transport`, `routing` (the routing modes), `wg` (`.conf` parsing), `discord` (finding, closing and reopening Discord), `ui`, `errtext`, `platform/{console,tray,tasklist,osuser}` (`osuser` names the OS user sent with a lease); `contracttest` checks `testdata/contracts/`, and `profile/profiletest` is the fake `provisiond` shared by tests.
 
 - **`supervisor`** owns the tunnel and its lifecycle. The UI (`ui`, Bubble Tea, or plain text) and the tray only read `Status` snapshots from `Updates()`, which drops frames instead of blocking. Policy: a dropped session is closed (transport, then lease) before the next attempt, because both transports tear down by fixed name; backoff 3s→30s; after 3 consecutive failures it enters `StateFallback`, hands Discord back to the normal network and keeps retrying. Every connection that comes up reopens Discord inside it. A failed lease renewal lands in `Status.LastError`; once the lease is gone (a 410, or failed renewals spanning its TTL: `profile.ErrLeaseLost`) the session ends like a drop. Transports never write to the terminal, which the TUI owns: `Start` reports setup progress and warnings through `transport.Reporter`, kept in `Status.Progress` (cleared when the attempt ends) and `Status.Warning` (cleared by the next attempt). On exit it reopens Discord outside the tunnel.
 - **`profile`** picks the config source: a `.conf` in the folder wins; otherwise a lease from `provisiond` (`lease.go`) — a fresh key pair each run (in memory on Linux; on Windows it goes through a temp file WireSock reads), `/lease` (hostname as `label`, `osuser.Name()` as `os_user`) → `/renew` every 60s → `/release` on `Close`, TLS pinned to the self-signed certificate's fingerprint. Teardown order: transport before lease.
@@ -69,6 +70,12 @@ Packages in `internal/`: `connectiontoken`, `app` (runs the TUI, or plain text w
 - **User-facing errors** go through `errtext.Translate` (`internal/errtext`) before a person reads them (TUI, plain text, transport warnings built from an error): it swaps the English that Go, the OS and commands add for pt-BR by error type, keeping the client's own Portuguese context.
 - **Per-platform files**: a `_linux.go`/`_windows.go` function called from untagged code needs an `_other.go` stub, or other OS builds break (`transport`, `discord`, `app`, `platform/console`). Packages imported only from tagged files (`transport/netns`, `transport/wiresock`, `platform/tray`) have none; `GOOS=windows go vet ./...` and the other OS builds are the check.
 - Windows: the `.exe` requests elevation through `build/app.manifest`, compiled into `rsrc_windows_*.syso`; a build without it relaunches itself elevated in wiresock mode (`console.EnsureElevated`).
+
+## Android app
+
+- `mobile/` is the gomobile-bound API (Java package `io.github.bumaruf.discordgovpn.mobile`): `Connect`/`ConnectFile` validate and start the desktop's `supervisor`, passing `Options.NewTransport` (`internal/transport/vpnservice`: wireguard-go on the descriptor `VpnService` hands over) and a no-op `Options.RestartDiscord`. gomobile binds only basic types: lists cross as comma-separated strings, errors carry already-translated text. `gobind -lang=java ./mobile` checks a signature change without the NDK.
+- `android/` (Kotlin, Jetpack Compose) only draws and owns the VPN: `TunnelService` implements the Go `Host` and is the only writer of `Tunnel`, which the screen, the Quick Settings tile and the notification read. The VPN allows only `com.discord`, so this app's own sockets (WireGuard UDP, lease renewals) stay outside it. The theme copies the panel's tokens from `panel/app/globals.css`; keep them in step.
+- Build tags: `android` satisfies `linux`, so a `_linux.go` file that must stay off Android needs `&& !android` (the netns adapter, `osuser_other.go`).
 
 ## Panel architecture
 
