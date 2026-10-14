@@ -32,7 +32,7 @@ export interface LiveSnapshot {
 }
 
 /** Where the data on screen came from; the header shows it. */
-export type LiveSource = 'live' | 'database' | 'connecting'
+export type LiveSource = 'live' | 'offline' | 'connecting'
 
 export const EMPTY_SNAPSHOT: LiveSnapshot = {
   generated_at: '',

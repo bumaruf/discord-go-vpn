@@ -1,78 +1,42 @@
-import { ObjectId } from 'mongodb'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { recordAudit, type AuditAction } from './audit'
-import { fakeCollection } from './fake-collection'
-import { collection } from './mongodb'
+import { writeProvisiond } from './provisiond'
 
-vi.mock('./mongodb', () => ({ collection: vi.fn() }))
-
-const auditLog = fakeCollection()
-const NOW = new Date('2026-09-13T12:00:00Z')
+vi.mock('./provisiond', () => ({ writeProvisiond: vi.fn() }))
 
 beforeEach(() => {
-  vi.useFakeTimers()
-  vi.setSystemTime(NOW)
+  vi.mocked(writeProvisiond).mockReset().mockResolvedValue(true)
   vi.spyOn(console, 'error').mockImplementation(() => {})
-  vi.mocked(collection).mockResolvedValue(auditLog.asCollection())
-})
-
-afterEach(() => {
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-  auditLog.insertOne.mockReset()
 })
 
 describe('recordAudit', () => {
-  it.each([
-    [true, 'ok'],
-    [false, 'error'],
-  ])('writes the entry with ok=%s as result %s', async (ok, result) => {
-    await recordAudit({
-      actorId: 'admin',
-      action: 'revokeInvite',
-      target: 'invite-1',
-      ok,
-      detail: 'detail',
-    })
+  it.each([true, false])('sends the entry with ok %s', async (ok) => {
+    await recordAudit({ actorId: 'admin', action: 'revokeInvite', target: 'inv1', ok, detail: 'x' })
 
-    expect(collection).toHaveBeenCalledWith('audit_log')
-    expect(auditLog.insertOne).toHaveBeenCalledWith({
-      _id: expect.any(ObjectId),
-      actorId: 'admin',
+    expect(writeProvisiond).toHaveBeenCalledWith('POST', '/admin/audit', {
+      actor_id: 'admin',
       action: 'revoke_invite',
-      target: 'invite-1',
-      at: NOW,
-      result,
-      detail: 'detail',
+      target: 'inv1',
+      ok,
+      detail: 'x',
     })
   })
 
   it.each<[AuditAction, string]>([
     ['createInvite', 'create_invite'],
-    ['revokeInvite', 'revoke_invite'],
     ['reactivateInvite', 'reactivate_invite'],
+    ['deleteInvite', 'delete_invite'],
+    ['setInviteMaxLeases', 'set_invite_max_leases'],
     ['disconnect', 'disconnect'],
-  ])('stores the %s action as %s', async (action, stored) => {
+  ])('stores %s as %s', async (action, stored) => {
     await recordAudit({ actorId: 'admin', action, target: 'x', ok: true, detail: '' })
-
-    expect(auditLog.insertOne.mock.calls[0][0].action).toBe(stored)
+    expect(vi.mocked(writeProvisiond).mock.calls[0][2]).toMatchObject({ action: stored })
   })
 
-  it.each([
-    ['the connection fails', () => vi.mocked(collection).mockRejectedValueOnce(new Error('down'))],
-    ['the insert fails', () => auditLog.insertOne.mockRejectedValueOnce(new Error('down'))],
-  ])('logs instead of throwing when %s', async (_, fail) => {
-    fail()
-
+  it('never throws', async () => {
+    vi.mocked(writeProvisiond).mockRejectedValue(new Error('down'))
     await expect(
-      recordAudit({
-        actorId: 'admin',
-        action: 'disconnect',
-        target: 'lease-1',
-        ok: true,
-        detail: '',
-      }),
+      recordAudit({ actorId: 'admin', action: 'disconnect', target: 'x', ok: true, detail: '' }),
     ).resolves.toBeUndefined()
-    expect(console.error).toHaveBeenCalled()
   })
 })

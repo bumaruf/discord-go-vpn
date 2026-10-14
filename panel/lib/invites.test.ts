@@ -1,203 +1,109 @@
-import { ObjectId } from 'mongodb'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeCollection, fakeCursor } from './fake-collection'
-import {
-  deleteInvite,
-  insertInvite,
-  inviteLabelsById,
-  listRecentInvites,
-  setInviteMaxLeases,
-} from './invites'
-import { collection } from './mongodb'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import invitesFixture from '../../testdata/contracts/panel-invites.json'
+import { deleteInvite, insertInvite, listRecentInvites, setInviteMaxLeases } from './invites'
+import { readProvisiond, writeProvisiond } from './provisiond'
 
-vi.mock('./mongodb', () => ({ collection: vi.fn() }))
-
-const invites = fakeCollection()
-const FIRST_ID = new ObjectId('66e2f0a1b2c3d4e5f6a7b8c9')
-const SECOND_ID = new ObjectId('66e2f0a1b2c3d4e5f6a7b8ca')
+vi.mock('./provisiond', () => ({ readProvisiond: vi.fn(), writeProvisiond: vi.fn() }))
 
 beforeEach(() => {
-  invites.find.mockReset()
-  invites.insertOne.mockReset()
-  invites.deleteOne.mockReset()
-  invites.updateOne.mockReset()
-  vi.mocked(collection).mockResolvedValue(invites.asCollection())
-})
-
-afterEach(() => {
-  vi.useRealTimers()
+  vi.mocked(readProvisiond).mockReset()
+  vi.mocked(writeProvisiond).mockReset().mockResolvedValue(true)
 })
 
 describe('listRecentInvites', () => {
-  it('reads the 100 newest invites', async () => {
-    const cursor = fakeCursor([])
-    invites.find.mockReturnValue(cursor)
-
-    await listRecentInvites()
-
-    expect(collection).toHaveBeenCalledWith('invites')
-    expect(invites.find).toHaveBeenCalledWith({})
-    expect(cursor.sort).toHaveBeenCalledWith({ createdAt: -1 })
-    expect(cursor.limit).toHaveBeenCalledWith(100)
-  })
-
-  it('maps each stored invite', async () => {
-    const createdAt = new Date('2026-09-12T10:00:00Z')
-    invites.find.mockReturnValue(
-      fakeCursor([
-        {
-          _id: FIRST_ID,
-          label: 'Team A',
-          kind: 'global',
-          prefix: 'vpn_ab12',
-          status: 'active',
-          createdAt,
-          maxLeases: 4,
-        },
-        {
-          _id: SECOND_ID,
-          label: 'friends',
-          prefix: 'vpn_cd34',
-          status: 'revoked',
-          createdAt,
-        },
-      ]),
-    )
+  it('maps each invite provisiond lists', async () => {
+    vi.mocked(readProvisiond).mockResolvedValue(invitesFixture)
 
     expect(await listRecentInvites()).toEqual([
       {
-        id: FIRST_ID.toHexString(),
-        label: 'Team A',
+        id: '65f1a2b3c4d5e6f7a8b9c0d1',
+        label: 'Família',
         kind: 'global',
         prefix: 'vpn_ab12',
         active: true,
-        createdAt,
-        maxLeases: 4,
+        createdAt: new Date('2026-09-12T12:00:00Z'),
+        maxLeases: 5,
+        deviceCount: 3,
       },
       {
-        id: SECOND_ID.toHexString(),
-        label: 'friends',
+        id: '65f1a2b3c4d5e6f7a8b9c0d2',
+        label: 'notebook da ana',
         kind: 'individual',
         prefix: 'vpn_cd34',
         active: false,
-        createdAt,
+        createdAt: new Date('2026-09-10T08:30:00Z'),
         maxLeases: null,
+        deviceCount: 0,
       },
     ])
+    expect(readProvisiond).toHaveBeenCalledWith('/admin/invites')
   })
-})
 
-describe('inviteLabelsById', () => {
-  it('reads only the label of up to 200 invites, keyed by id', async () => {
-    const cursor = fakeCursor([
-      { _id: FIRST_ID, label: 'Team A' },
-      { _id: SECOND_ID, label: 'friends' },
-    ])
-    invites.find.mockReturnValue(cursor)
+  it('reads an unknown kind as individual', async () => {
+    const [first] = invitesFixture.invites
+    vi.mocked(readProvisiond).mockResolvedValue({ invites: [{ ...first, kind: 'family' }] })
 
-    const labels = await inviteLabelsById()
-
-    expect(invites.find).toHaveBeenCalledWith({}, { projection: { label: 1 } })
-    expect(cursor.limit).toHaveBeenCalledWith(200)
-    expect(labels).toEqual({
-      [FIRST_ID.toHexString()]: 'Team A',
-      [SECOND_ID.toHexString()]: 'friends',
-    })
+    const [invite] = await listRecentInvites()
+    expect(invite.kind).toBe('individual')
   })
 })
 
 describe('insertInvite', () => {
-  it('stores an active invite created now, in the stored field order', async () => {
-    const now = new Date('2026-09-13T12:00:00Z')
-    vi.useFakeTimers()
-    vi.setSystemTime(now)
+  const invite = {
+    label: 'Família',
+    kind: 'global' as const,
+    tokenHash: 'hash',
+    prefix: 'vpn_ab12',
+    createdBy: 'admin',
+  }
 
-    await insertInvite({
-      label: 'Team A',
-      kind: 'global',
-      tokenHash: 'hash',
-      prefix: 'vpn_ab12',
-      createdBy: 'admin',
-      maxLeases: null,
-    })
+  it('sends the invite without a cap when it has none', async () => {
+    await insertInvite({ ...invite, maxLeases: null })
 
-    const [document] = invites.insertOne.mock.calls[0]
-    expect(document).toEqual({
-      _id: expect.any(ObjectId),
-      label: 'Team A',
+    expect(writeProvisiond).toHaveBeenCalledWith('POST', '/admin/invites', {
+      label: 'Família',
       kind: 'global',
-      tokenHash: 'hash',
+      token_hash: 'hash',
       prefix: 'vpn_ab12',
-      status: 'active',
-      createdBy: 'admin',
-      createdAt: now,
+      created_by: 'admin',
     })
-    expect(Object.keys(document)).toEqual([
-      '_id',
-      'label',
-      'kind',
-      'tokenHash',
-      'prefix',
-      'status',
-      'createdBy',
-      'createdAt',
-    ])
   })
 
-  it('stores the cap when there is one', async () => {
-    await insertInvite({
-      label: 'Team A',
-      kind: 'global',
-      tokenHash: 'hash',
-      prefix: 'vpn_ab12',
-      createdBy: 'admin',
-      maxLeases: 4,
-    })
+  it('sends the cap when there is one', async () => {
+    await insertInvite({ ...invite, maxLeases: 5 })
+    expect(vi.mocked(writeProvisiond).mock.calls[0][2]).toMatchObject({ max_leases: 5 })
+  })
 
-    expect(invites.insertOne.mock.calls[0][0]).toMatchObject({ maxLeases: 4 })
+  it('throws when the route is missing', async () => {
+    vi.mocked(writeProvisiond).mockResolvedValue(false)
+    await expect(insertInvite({ ...invite, maxLeases: null })).rejects.toThrow()
   })
 })
 
 describe('setInviteMaxLeases', () => {
-  it('sets the cap', async () => {
-    invites.updateOne.mockResolvedValue({ matchedCount: 1 })
-
-    expect(await setInviteMaxLeases(FIRST_ID.toHexString(), 4)).toBe(true)
-    expect(invites.updateOne).toHaveBeenCalledWith({ _id: FIRST_ID }, { $set: { maxLeases: 4 } })
+  it.each([5, null])('sends %j as the cap', async (cap) => {
+    expect(await setInviteMaxLeases('65f1a2b3c4d5e6f7a8b9c0d1', cap)).toBe(true)
+    expect(writeProvisiond).toHaveBeenCalledWith(
+      'PUT',
+      '/admin/invites/65f1a2b3c4d5e6f7a8b9c0d1/max-leases',
+      { max_leases: cap },
+    )
   })
 
-  it('removes the cap for null', async () => {
-    invites.updateOne.mockResolvedValue({ matchedCount: 1 })
-
-    await setInviteMaxLeases(FIRST_ID.toHexString(), null)
-    expect(invites.updateOne).toHaveBeenCalledWith({ _id: FIRST_ID }, { $unset: { maxLeases: '' } })
-  })
-
-  it('reports a missing invite and skips the database for an invalid id', async () => {
-    invites.updateOne.mockResolvedValue({ matchedCount: 0 })
-
-    expect(await setInviteMaxLeases(FIRST_ID.toHexString(), 4)).toBe(false)
-    expect(await setInviteMaxLeases('not-an-id', 4)).toBe(false)
-    expect(invites.updateOne).toHaveBeenCalledTimes(1)
+  it('reports a missing invite', async () => {
+    vi.mocked(writeProvisiond).mockResolvedValue(false)
+    expect(await setInviteMaxLeases('gone', 5)).toBe(false)
   })
 })
 
 describe('deleteInvite', () => {
-  it('deletes the invite by id', async () => {
-    invites.deleteOne.mockResolvedValue({ deletedCount: 1 })
-
-    expect(await deleteInvite(FIRST_ID.toHexString())).toBe(true)
-    expect(invites.deleteOne).toHaveBeenCalledWith({ _id: FIRST_ID })
+  it('deletes the invite by id, escaped', async () => {
+    expect(await deleteInvite('a/b')).toBe(true)
+    expect(writeProvisiond).toHaveBeenCalledWith('DELETE', '/admin/invites/a%2Fb')
   })
 
   it('reports an invite that was already gone', async () => {
-    invites.deleteOne.mockResolvedValue({ deletedCount: 0 })
-
-    expect(await deleteInvite(FIRST_ID.toHexString())).toBe(false)
-  })
-
-  it('skips the database for an id no invite can have', async () => {
-    expect(await deleteInvite('not-an-id')).toBe(false)
-    expect(invites.deleteOne).not.toHaveBeenCalled()
+    vi.mocked(writeProvisiond).mockResolvedValue(false)
+    expect(await deleteInvite('65f1a2b3c4d5e6f7a8b9c0d1')).toBe(false)
   })
 })

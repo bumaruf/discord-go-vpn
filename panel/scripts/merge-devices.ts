@@ -1,5 +1,5 @@
 import { MongoClient } from 'mongodb'
-import type { DeviceDocument } from '../lib/devices'
+import type { DeviceDocument } from '../lib/documents'
 import { mongodbDb, mongodbUri } from '../lib/env'
 import { mergeDevices, planDeviceMerges } from '../lib/merge-devices'
 import { FIELD } from '../lib/mongo-names'

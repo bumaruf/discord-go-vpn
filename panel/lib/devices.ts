@@ -1,21 +1,20 @@
-import { ObjectId } from 'mongodb'
-import { collection } from './mongodb'
-import { COLLECTION, FIELD, fieldRef } from './mongo-names'
+import 'server-only'
 
-const DEVICES_LIMIT = 500
+import { readProvisiond } from './provisiond'
 
-/** A machine, identified by invite, computer name and OS user; a device without invite has null. */
-export interface DeviceDocument {
-  [FIELD.id]: ObjectId
-  [FIELD.inviteId]: ObjectId | null
-  [FIELD.name]: string
-  /** Missing on devices registered before provisiond sent it. */
-  [FIELD.osUser]?: string | null
-  [FIELD.firstIp]?: string
-  [FIELD.lastIp]?: string
-  [FIELD.createdAt]: Date
-  [FIELD.lastSeenAt]: Date
-  [FIELD.accessCount]: number
+/** GET /admin/devices (testdata/contracts/panel-devices.json). */
+export interface DevicesResponse {
+  devices: {
+    id: string
+    invite_id?: string
+    name: string
+    os_user?: string
+    last_ip?: string
+    first_seen_at: string
+    last_seen_at: string
+    access_count: number
+  }[]
+  invite_labels: Record<string, string>
 }
 
 /** Dates as ISO strings: the list is rendered by a client component. */
@@ -30,45 +29,29 @@ export interface Device {
   accessCount: number
 }
 
-function devicesCollection() {
-  return collection<DeviceDocument>(COLLECTION.devices)
+export interface DeviceDirectory {
+  devices: Device[]
+  /** Invite labels keyed by invite id. */
+  inviteLabels: Record<string, string>
 }
 
 /**
  * Every registered machine, the most recently seen first — including the ones not connected now,
  * which hold the usage history of their leases.
  */
-export async function listDevices(): Promise<Device[]> {
-  const devices = await devicesCollection()
-  const docs = await devices
-    .find({})
-    .sort({ [FIELD.lastSeenAt]: -1 })
-    .limit(DEVICES_LIMIT)
-    .toArray()
-
-  return docs.map((doc) => ({
-    id: doc[FIELD.id].toHexString(),
-    inviteId: doc[FIELD.inviteId]?.toHexString(),
-    name: doc[FIELD.name],
-    osUser: doc[FIELD.osUser] ?? undefined,
-    lastIp: doc[FIELD.lastIp],
-    firstSeenAt: doc[FIELD.createdAt].toISOString(),
-    lastSeenAt: doc[FIELD.lastSeenAt].toISOString(),
-    accessCount: doc[FIELD.accessCount] ?? 0,
-  }))
-}
-
-/** How many devices each invite has, keyed by invite id; invites without devices are absent. */
-export async function countDevicesByInvite(inviteIds: string[]): Promise<Map<string, number>> {
-  if (inviteIds.length === 0) return new Map()
-
-  const devices = await devicesCollection()
-  const counts = await devices
-    .aggregate<{ _id: unknown; total: number }>([
-      { $match: { [FIELD.inviteId]: { $in: inviteIds.map((id) => new ObjectId(id)) } } },
-      { $group: { _id: fieldRef(FIELD.inviteId), total: { $sum: 1 } } },
-    ])
-    .toArray()
-
-  return new Map(counts.map((count) => [String(count._id), count.total]))
+export async function listDevices(): Promise<DeviceDirectory> {
+  const response = await readProvisiond<DevicesResponse>('/admin/devices')
+  return {
+    devices: response.devices.map((device) => ({
+      id: device.id,
+      inviteId: device.invite_id,
+      name: device.name,
+      osUser: device.os_user,
+      lastIp: device.last_ip,
+      firstSeenAt: device.first_seen_at,
+      lastSeenAt: device.last_seen_at,
+      accessCount: device.access_count,
+    })),
+    inviteLabels: response.invite_labels,
+  }
 }

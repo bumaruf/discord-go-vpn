@@ -1,7 +1,6 @@
 import { CircleAlert } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/ui/page-header'
-import { countDevicesByInvite } from '@/lib/devices'
 import { listRecentInvites } from '@/lib/invites'
 import { ROUTES } from '../routes'
 import { InviteList } from './invite-list'
@@ -38,8 +37,6 @@ export default async function InvitesPage() {
 async function loadInviteRows(): Promise<InviteRow[] | null> {
   try {
     const invites = await listRecentInvites()
-    // One aggregation for every invite instead of one count per row.
-    const deviceCounts = await countDevicesByInvite(invites.map((invite) => invite.id))
 
     return invites.map((invite): InviteRow => ({
       id: invite.id,
@@ -47,7 +44,7 @@ async function loadInviteRows(): Promise<InviteRow[] | null> {
       kind: invite.kind,
       status: invite.active ? 'active' : 'revoked',
       createdAt: shortDate.format(invite.createdAt),
-      deviceCount: deviceCounts.get(invite.id) ?? 0,
+      deviceCount: invite.deviceCount,
       maxLeases: invite.maxLeases,
     }))
   } catch (error) {

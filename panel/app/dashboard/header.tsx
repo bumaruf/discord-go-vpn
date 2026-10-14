@@ -13,7 +13,7 @@ import { ROUTES } from './routes'
 
 const SOURCE_STATUS: Record<LiveSource, { text: string; tone: StatusTone }> = {
   live: { text: 'Ao vivo', tone: 'online' },
-  database: { text: 'Sem conexão ao vivo', tone: 'blocked' },
+  offline: { text: 'Sem conexão ao vivo', tone: 'blocked' },
   connecting: { text: 'Conectando', tone: 'offline' },
 }
 

@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "discord-go-vpn-panel",
-  "main": "worker.ts",
+  "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-14",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -16,18 +16,20 @@
       "service": "discord-go-vpn-panel",
     },
   ],
-  "durable_objects": {
-    "bindings": [{ "name": "MONGO_GATEWAY", "class_name": "MongoGateway" }],
-  },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MongoGateway"] }],
-  // Added once the first deploy has created the Worker and the zone is active on Cloudflare.
+  // Failed logins per address (lib/login-attempts.ts).
+  "kv_namespaces": [{ "binding": "LOGIN_ATTEMPTS", "id": "416f660c3ba34ee18b3e45870427776a" }],
+  // v1 created the MongoGateway Durable Object, since replaced by provisiond's admin routes; a
+  // deployed class is removed by a migration, never by dropping it from this list.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MongoGateway"] },
+    { "tag": "v2", "deleted_classes": ["MongoGateway"] },
+  ],
+  // Added once the zone is active on Cloudflare.
   // "routes": [{ "pattern": "<domain>", "custom_domain": true }],
   "preview_urls": false,
   "observability": { "enabled": true },
   // Previews don't inherit production's bindings: repeat every one the code reads from `env`.
   "previews": {
-    "durable_objects": {
-      "bindings": [{ "name": "MONGO_GATEWAY", "class_name": "MongoGateway" }],
-    },
+    "kv_namespaces": [{ "binding": "LOGIN_ATTEMPTS", "id": "416f660c3ba34ee18b3e45870427776a" }],
   },
 }

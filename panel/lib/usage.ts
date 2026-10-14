@@ -1,24 +1,13 @@
-import { collection } from './mongodb'
-import { COLLECTION, FIELD, fieldRef } from './mongo-names'
+import { readProvisiond } from './provisiond'
 import { USAGE_DAYS } from './usage-days'
-
-export interface DailyUsageDocument {
-  /** `<identity>:<YYYY-MM-DD>`. */
-  [FIELD.id]: string
-  /** The device id; `peer:<key>` for the legacy global token. */
-  [FIELD.identity]: string
-  [FIELD.day]: string
-  [FIELD.rxBytes]: number
-  [FIELD.txBytes]: number
-  [FIELD.onlineSeconds]: number
-}
-
-function dailyUsageCollection() {
-  return collection<DailyUsageDocument>(COLLECTION.dailyUsage)
-}
 
 // Sums the per-device deltas the collector stores, not WireGuard counters, which reset on every
 // lease; that is what lets a device's history span its leases.
+
+/** GET /admin/usage (testdata/contracts/panel-usage.json): days without traffic are absent. */
+export interface UsageResponse {
+  days: { day: string; rx_bytes: number; tx_bytes: number }[]
+}
 
 interface DailyUsage {
   /** `YYYY-MM-DD`. */
@@ -36,6 +25,13 @@ export interface UsageSummary {
 
 /** `null` when the database didn't answer, so the page says so instead of showing zeros. */
 export type UsageFromDatabase = UsageSummary | null
+
+export interface ServerUsage {
+  /** From the 1st of the current UTC month to today. */
+  month: UsageFromDatabase
+  /** The last USAGE_DAYS days. */
+  history: UsageFromDatabase
+}
 
 function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10)
@@ -75,64 +71,32 @@ function summarize(days: string[], rows: DailyUsage[]): UsageSummary {
   }
 }
 
+async function usageSince(from: string, device?: string): Promise<DailyUsage[]> {
+  const query = new URLSearchParams({ from, ...(device ? { device } : {}) })
+  const { days } = await readProvisiond<UsageResponse>(`/admin/usage?${query}`)
+  return days.map((d) => ({ day: d.day, rxBytes: d.rx_bytes, txBytes: d.tx_bytes }))
+}
+
 /** `identity` is the device id. */
 export async function findDeviceUsage(identity: string): Promise<UsageFromDatabase> {
   try {
-    const dailyUsage = await dailyUsageCollection()
     const days = lastDays()
-
-    const docs = await dailyUsage
-      .find({ [FIELD.identity]: identity, [FIELD.day]: { $gte: days[0] } })
-      .sort({ [FIELD.day]: 1 })
-      .toArray()
-
-    return summarize(
-      days,
-      docs.map((d) => ({
-        day: d[FIELD.day],
-        rxBytes: d[FIELD.rxBytes] ?? 0,
-        txBytes: d[FIELD.txBytes] ?? 0,
-      })),
-    )
+    return summarize(days, await usageSince(days[0], identity))
   } catch (error) {
     console.error('failed to read device usage', error)
     return null
   }
 }
 
-export function sumServerUsage(): Promise<UsageFromDatabase> {
-  return sumServerDays(lastDays())
-}
-
-/** From the 1st of the current UTC month to today. */
-export function sumMonthUsage(): Promise<UsageFromDatabase> {
-  return sumServerDays(monthDays())
-}
-
-async function sumServerDays(days: string[]): Promise<UsageFromDatabase> {
+/** One request covers both ranges: the month and the history overlap. */
+export async function findServerUsage(): Promise<ServerUsage> {
+  const month = monthDays()
+  const history = lastDays()
   try {
-    const dailyUsage = await dailyUsageCollection()
-
-    const docs = await dailyUsage
-      .aggregate<{ _id: string; rxBytes: number; txBytes: number }>([
-        { $match: { [FIELD.day]: { $gte: days[0] } } },
-        {
-          $group: {
-            _id: fieldRef(FIELD.day),
-            rxBytes: { $sum: fieldRef(FIELD.rxBytes) },
-            txBytes: { $sum: fieldRef(FIELD.txBytes) },
-          },
-        },
-        { $sort: { _id: 1 } },
-      ])
-      .toArray()
-
-    return summarize(
-      days,
-      docs.map((d) => ({ day: d._id, rxBytes: d.rxBytes, txBytes: d.txBytes })),
-    )
+    const rows = await usageSince(month[0] < history[0] ? month[0] : history[0])
+    return { month: summarize(month, rows), history: summarize(history, rows) }
   } catch (error) {
     console.error('failed to read server usage', error)
-    return null
+    return { month: null, history: null }
   }
 }
