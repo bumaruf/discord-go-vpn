@@ -118,9 +118,8 @@ Antes de abrir um PR:
 
 ```sh
 npm run lint                   # ESLint, falha com qualquer aviso
-npm run typecheck              # tsc --noEmit
+npm run typecheck              # tsc --noEmit, depois de gerar os tipos da Cloudflare (cf-typegen)
 npm run format:check           # Prettier (npm run format corrige)
-npm run cf-typegen             # tipos do runtime da Cloudflare (cloudflare-env.d.ts), que o typecheck usa
 npm test                       # Vitest; os testes ficam ao lado do arquivo, em *.test.ts
 npm run build
 ```

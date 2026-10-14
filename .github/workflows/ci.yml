@@ -71,8 +71,6 @@ jobs:
           cache-dependency-path: panel/package-lock.json
       - run: npm ci
       - run: npm run lint
-      # Cloudflare's runtime types and the bindings in wrangler.jsonc, which typecheck needs.
-      - run: npm run cf-typegen
       - run: npm run typecheck
       - run: npm run format:check
       - run: npm test
@@ -119,6 +117,11 @@ jobs:
     name: Deploy panel
     needs: [panel, panel-changed]
     if: github.event_name == 'push' && needs.panel-changed.outputs.changed == 'true'
+    # GitHub checks every job of the called workflow against these, even the preview job this
+    # call skips, which comments on pull requests.
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/deploy-panel.yml
     with:
       target: production

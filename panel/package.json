@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run cf-typegen",
     "build": "next build",
     "start": "next start",
     "lint": "eslint --max-warnings 0",
+    "pretypecheck": "npm run cf-typegen",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
