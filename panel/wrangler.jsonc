@@ -26,7 +26,8 @@
   ],
   // Added once the zone is active on Cloudflare.
   // "routes": [{ "pattern": "<domain>", "custom_domain": true }],
-  "preview_urls": false,
+  // Previews get a workers.dev URL only with this on.
+  "preview_urls": true,
   "observability": { "enabled": true },
   // Previews don't inherit production's bindings: repeat every one the code reads from `env`.
   "previews": {
