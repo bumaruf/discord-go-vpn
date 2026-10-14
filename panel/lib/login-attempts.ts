@@ -19,8 +19,14 @@ interface LoginAttemptDocument {
   [FIELD.expiresAt]: Date
 }
 
-/** The first address in `x-forwarded-for`, which Vercel sets and doesn't take from the client. */
+/**
+ * `cf-connecting-ip`, which Cloudflare overwrites on every request. A client can put anything at
+ * the start of `x-forwarded-for` there, so that header is only read off Cloudflare, by `next dev`.
+ */
 export function clientAddress(request: Request): string {
+  const cloudflare = request.headers.get('cf-connecting-ip')
+  if (cloudflare) return cloudflare
+
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
   return forwarded || request.headers.get('x-real-ip') || 'unknown'
 }

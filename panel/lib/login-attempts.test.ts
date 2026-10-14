@@ -31,6 +31,7 @@ afterEach(() => {
 
 describe('clientAddress', () => {
   it.each([
+    [{ 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '198.51.100.1' }, '203.0.113.7'],
     [{ 'x-forwarded-for': '203.0.113.5, 10.0.0.1' }, '203.0.113.5'],
     [{ 'x-real-ip': '203.0.113.6' }, '203.0.113.6'],
     [{}, 'unknown'],

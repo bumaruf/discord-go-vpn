@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "discord-go-vpn-panel",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-14",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "services": [
+    {
+      // Must match "name". Only revalidation uses it, which is why it stays out of `previews`,
+      // where a service binding would call production.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "discord-go-vpn-panel",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "MONGO_GATEWAY", "class_name": "MongoGateway" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MongoGateway"] }],
+  // Added once the first deploy has created the Worker and the zone is active on Cloudflare.
+  // "routes": [{ "pattern": "<domain>", "custom_domain": true }],
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // Previews don't inherit production's bindings: repeat every one the code reads from `env`.
+  "previews": {
+    "durable_objects": {
+      "bindings": [{ "name": "MONGO_GATEWAY", "class_name": "MongoGateway" }],
+    },
+  },
+}
