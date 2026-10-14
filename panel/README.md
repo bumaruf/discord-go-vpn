@@ -201,8 +201,9 @@ requests. Os repositórios continuam chamando `collection()`; o
 direto no driver. Operação nova do driver nos repositórios entra nos três
 arquivos.
 
-O objeto nasce perto do primeiro request que o usa. Com o Atlas longe disso,
-cada query paga a distância: dá para fixar a região com `locationHint` em
+Cada query paga a distância entre o objeto e o Atlas, então ele é criado com
+`locationHint: 'sam'`, perto do cluster em São Paulo (`sa-east-1`). A dica só
+vale quando o objeto nasce: mudar de região é trocar o nome em
 `lib/mongodb.ts`.
 
 ### Montando do zero

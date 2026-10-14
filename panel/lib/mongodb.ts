@@ -67,7 +67,9 @@ async function send<T>(operation: MongoOperation): Promise<T> {
   }
 
   const gateways = getCloudflareContext().env.MONGO_GATEWAY
-  const gateway = gateways.get(gateways.idFromName('primary'))
+  // Placed next to the Atlas cluster (sa-east-1): every query pays the object-to-Atlas distance. The
+  // hint only applies when the object is first created, so moving it means a new name.
+  const gateway = gateways.get(gateways.idFromName('sam'), { locationHint: 'sam' })
   const result = await gateway.run(BSON.EJSON.stringify(operation, { relaxed: false }))
   return BSON.EJSON.parse(result, { relaxed: false }) as T
 }
