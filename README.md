@@ -81,11 +81,10 @@ flowchart LR
     WG == "NAT" ==> NET
     OUTROS -- "rede normal" --> NET
 
-    PROV -- "registra dispositivos<br/>grava métricas" --> DB
-    PANEL -- "dispositivos, histórico" --> DB
+    PROV -- "registra dispositivos, grava métricas,<br/>lê e grava para o painel" --> DB
     ADMIN -- "HTTPS" --> PANEL
     ADMIN -- "ao vivo, SSE 1/s" --> CADDY
-    PANEL -- "ações: desconectar,<br/>revogar" --> CADDY
+    PANEL -- "dados e ações:<br/>convites, dispositivos, histórico" --> CADDY
     CADDY -- "/admin/*" --> PROV
 ```
 
@@ -104,7 +103,9 @@ flowchart LR
 
 O painel fica ao lado, sem entrar no caminho do túnel: o `provisiond` grava
 métricas no Atlas e transmite o estado ao vivo direto para o navegador do
-administrador, passando pelo Caddy, que dá o certificado válido. Detalhes em
+administrador, passando pelo Caddy, que dá o certificado válido. O painel não
+conecta no Atlas: convites, dispositivos e histórico também passam pelo
+`provisiond`. Detalhes em
 [`server/`](server/README.md) e [`panel/`](panel/README.md).
 
 ### Uma sessão, do começo ao fim
