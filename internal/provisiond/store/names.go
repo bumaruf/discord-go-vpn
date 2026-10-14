@@ -14,6 +14,7 @@ const (
 	samplesCollection    = "samples"
 	sessionsCollection   = "sessions"
 	dailyUsageCollection = "daily_usage"
+	auditLogCollection   = "audit_log"
 )
 
 const (
@@ -46,12 +47,29 @@ const (
 	fieldStartedAt     = "startedAt"
 	fieldDay           = "day"
 	fieldOnlineSeconds = "onlineSeconds"
+	fieldKind          = "kind"
+	fieldPrefix        = "prefix"
+	fieldCreatedBy     = "createdBy"
+	fieldMaxLeases     = "maxLeases"
+	fieldActorID       = "actorId"
+	fieldAction        = "action"
+	fieldTarget        = "target"
+	fieldAt            = "at"
+	fieldResult        = "result"
+	fieldDetail        = "detail"
 )
 
 // Stored values.
 const (
 	InviteActive  = "active"
 	InviteRevoked = "revoked"
+
+	// InviteIndividual is also the kind of invites stored before kinds existed.
+	InviteIndividual = "individual"
+	InviteGlobal     = "global"
+
+	auditOK    = "ok"
+	auditError = "error"
 
 	sessionOnline  = "online"
 	sessionOffline = "offline"
@@ -62,6 +80,16 @@ const (
 	// unnamedDevice is the name of a device whose client sent no label.
 	unnamedDevice = ""
 )
+
+// AuditActions are the actions the audit log stores; the panel sends one with each entry.
+var AuditActions = []string{
+	"create_invite",
+	"revoke_invite",
+	"reactivate_invite",
+	"delete_invite",
+	"set_invite_max_leases",
+	"disconnect",
+}
 
 // InviteRecord is the part of an invite document the authenticator reads. Its bson tags
 // are field names too.

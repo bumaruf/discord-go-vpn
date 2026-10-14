@@ -1,0 +1,24 @@
+{
+  "devices": [
+    {
+      "id": "66a1b2c3d4e5f6a7b8c9d0e1",
+      "invite_id": "65f1a2b3c4d5e6f7a8b9c0d1",
+      "name": "DESKTOP-ANA",
+      "os_user": "ana",
+      "last_ip": "203.0.113.7",
+      "first_seen_at": "2026-09-01T10:00:00Z",
+      "last_seen_at": "2026-09-12T11:59:00Z",
+      "access_count": 42
+    },
+    {
+      "id": "66a1b2c3d4e5f6a7b8c9d0e2",
+      "name": "",
+      "first_seen_at": "2026-08-20T10:00:00Z",
+      "last_seen_at": "2026-08-21T10:00:00Z",
+      "access_count": 1
+    }
+  ],
+  "invite_labels": {
+    "65f1a2b3c4d5e6f7a8b9c0d1": "Família"
+  }
+}

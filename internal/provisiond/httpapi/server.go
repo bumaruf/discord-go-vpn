@@ -40,7 +40,9 @@ type server struct {
 	now    func() time.Time
 	random io.Reader
 
-	store store.Store // nil without a database
+	store store.Store     // nil without a database
+	data  store.PanelData // nil without a database
+	usage usageCache
 
 	collector *metrics.Collector
 	hub       *live.Hub
@@ -53,7 +55,8 @@ type Options struct {
 	Config    config.Config
 	Registry  *lease.Registry
 	WireGuard wireguard.Interface
-	Store     store.Store // nil without a database
+	Store     store.Store     // nil without a database
+	PanelData store.PanelData // nil without a database
 	Collector *metrics.Collector
 	Hub       *live.Hub
 	Auth      *auth.Authenticator
@@ -74,6 +77,7 @@ func New(o Options) http.Handler {
 		now:       time.Now,
 		random:    rand.Reader,
 		store:     o.Store,
+		data:      o.PanelData,
 		collector: o.Collector,
 		hub:       o.Hub,
 		auth:      o.Auth,
@@ -100,6 +104,13 @@ func (s *server) routes() http.Handler {
 		"POST /admin/leases/{id}/disconnect":  panelSecret(http.HandlerFunc(s.handleDisconnect)),
 		"POST /admin/invites/{id}/revoke":     panelSecret(http.HandlerFunc(s.handleRevoke)),
 		"POST /admin/invites/{id}/reactivate": panelSecret(http.HandlerFunc(s.handleReactivate)),
+		"GET /admin/invites":                  panelSecret(http.HandlerFunc(s.handleListInvites)),
+		"POST /admin/invites":                 panelSecret(http.HandlerFunc(s.handleCreateInvite)),
+		"DELETE /admin/invites/{id}":          panelSecret(http.HandlerFunc(s.handleDeleteInvite)),
+		"PUT /admin/invites/{id}/max-leases":  panelSecret(http.HandlerFunc(s.handleSetInviteMaxLeases)),
+		"GET /admin/devices":                  panelSecret(http.HandlerFunc(s.handleListDevices)),
+		"GET /admin/usage":                    panelSecret(http.HandlerFunc(s.handleUsage)),
+		"POST /admin/audit":                   panelSecret(http.HandlerFunc(s.handleAudit)),
 	})
 	return mux
 }

@@ -107,6 +107,7 @@ func main() {
 			Registry:  registry,
 			WireGuard: wg,
 			Store:     db,
+			PanelData: db,
 			Collector: collector,
 			Hub:       hub,
 			Auth:      authenticator,
