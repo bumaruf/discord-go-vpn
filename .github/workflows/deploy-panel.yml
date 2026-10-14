@@ -1,0 +1,134 @@
+name: Deploy panel
+
+# Called by CI once the panel job passes: a pull request gets a Workers Preview "pr-<n>" with its
+# URL commented, a push to main deploys production. Closing the pull request deletes its Preview.
+# Setup and secrets: panel/README.md, Publicando na Cloudflare.
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: preview or production
+        type: string
+        required: true
+  pull_request:
+    types: [closed]
+    paths: [panel/**]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: panel
+
+jobs:
+  preview:
+    name: Preview
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && inputs.target == 'preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: deploy-panel-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # Not "preview"/"production": the Vercel integration owns GitHub environments by those names,
+    # and environment names ignore case.
+    environment:
+      name: panel-preview
+      url: ${{ steps.preview.outputs.url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+      - run: npm ci
+      - run: npx opennextjs-cloudflare build
+        env:
+          # Inlined into the browser bundle at build time, so they come from repository variables.
+          NEXT_PUBLIC_SERVER_NAME: ${{ vars.NEXT_PUBLIC_SERVER_NAME }}
+          NEXT_PUBLIC_WG_PORT: ${{ vars.NEXT_PUBLIC_WG_PORT }}
+      - name: Deploy Workers Preview
+        id: preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Read from the output file, not `--json` on stdout: OpenNext's esbuild warnings land there too.
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          npx wrangler preview --name "pr-$PR" --message "$SHA"
+          url="$(jq -er 'select(.type == "preview") | .preview_urls[0]' "$WRANGLER_OUTPUT_FILE_PATH" | tail -n1)"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Comment the Preview URL
+        uses: actions/github-script@v8
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        with:
+          script: |
+            const marker = '<!-- cloudflare-preview -->'
+            const sha = context.payload.pull_request.head.sha.slice(0, 7)
+            const body = [marker, '### Preview do painel na Cloudflare', '',
+              `**URL:** ${process.env.PREVIEW_URL}`, `**Commit:** \`${sha}\``].join('\n')
+            const { owner, repo } = context.repo
+            const issue_number = context.issue.number
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number })
+            const existing = comments.find((c) => c.body?.includes(marker))
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body })
+
+  cleanup:
+    name: Delete the Preview
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+      - run: npm ci
+      - name: Delete Workers Preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ github.event.pull_request.number }}
+        # A pull request whose Preview never deployed (CI failed first) has nothing to delete.
+        run: npx wrangler preview delete --name "pr-$PR" --skip-confirmation || true
+
+  production:
+    name: Production
+    if: inputs.target == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-panel-production
+      cancel-in-progress: false
+    environment:
+      name: panel-production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+      - run: npm ci
+      - run: npx opennextjs-cloudflare build
+        env:
+          NEXT_PUBLIC_SERVER_NAME: ${{ vars.NEXT_PUBLIC_SERVER_NAME }}
+          NEXT_PUBLIC_WG_PORT: ${{ vars.NEXT_PUBLIC_WG_PORT }}
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx opennextjs-cloudflare deploy

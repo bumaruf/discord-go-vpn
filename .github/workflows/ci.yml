@@ -66,16 +66,63 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          # Same major as the Vercel project.
           node-version: 24
           cache: npm
           cache-dependency-path: panel/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # Cloudflare's runtime types and the bindings in wrangler.jsonc, which typecheck needs.
+      - run: npm run cf-typegen
       - run: npm run typecheck
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+
+  panel-changed:
+    name: Panel changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A diff that fails (a before commit that is gone) counts as a change.
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git diff --quiet "$BASE" HEAD -- panel .github/workflows/deploy-panel.yml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  preview-panel:
+    name: Preview panel
+    needs: [panel, panel-changed]
+    # Forks get no secrets.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.panel-changed.outputs.changed == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/deploy-panel.yml
+    with:
+      target: preview
+    secrets: inherit
+
+  deploy-panel:
+    name: Deploy panel
+    needs: [panel, panel-changed]
+    if: github.event_name == 'push' && needs.panel-changed.outputs.changed == 'true'
+    uses: ./.github/workflows/deploy-panel.yml
+    with:
+      target: production
+    secrets: inherit
 
   server-changed:
     name: Server image changed
