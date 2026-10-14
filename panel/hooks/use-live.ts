@@ -21,7 +21,7 @@ export interface LiveState {
 }
 
 /**
- * Streams snapshots straight from provisiond, without going through Vercel or the database. While
+ * Streams snapshots straight from provisiond, without going through the panel's server or the database. While
  * the stream is down it keeps retrying with backoff and, after repeated failures, reads the
  * database fallback.
  */

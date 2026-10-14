@@ -22,12 +22,12 @@ Three deliverables in one repository, talking over the network:
 
 - **Client** (`cmd/discord-go-vpn` + `internal/`) — runs the whole Discord process inside a WireGuard tunnel: a network namespace on Linux, the WireSock WFP filter on Windows, so gateway and media (WebRTC over UDP) leave from the same IP. The **Android app** (`android/` + `mobile/`) is the same client on a phone.
 - **`provisiond`** (`cmd/provisiond` + `internal/provisiond/`) — runs on the VPS via `server/` (Docker Compose). Hands out short-lived WireGuard peer leases (`wg set`), collects metrics, serves live SSE and the admin routes.
-- **Panel** (`panel/`) — Next.js 16 on Vercel + MongoDB Atlas, admin-only. It has its own `panel/AGENTS.md`: this Next version differs from what the model knows; read `node_modules/next/dist/docs/` before writing code there.
+- **Panel** (`panel/`) — Next.js 16 on a Cloudflare Worker (`@opennextjs/cloudflare`) + MongoDB Atlas, admin-only. It has its own `panel/AGENTS.md`: this Next version differs from what the model knows; read `node_modules/next/dist/docs/` before writing code there.
 
 Reference docs, so this file doesn't duplicate them:
 - `README.md` → *Arquitetura*: diagrams of the whole system and of one client session.
 - `server/README.md` → *Referência*: `provisiond` routes and auth, env vars, files in the volume, timings and limits.
-- `panel/README.md`: panel env vars, local setup, Vercel deploy.
+- `panel/README.md`: panel env vars, local setup, Cloudflare deploy.
 
 ## Commands
 
@@ -83,6 +83,7 @@ Packages in `internal/`: `connectiontoken`, `app` (runs the TUI, or plain text w
 
 - Pages, API routes and Server Actions never query Mongo: they go through the repositories in `panel/lib/` (`invites.ts`, `devices.ts`, `sessions.ts`, `samples.ts`, `usage.ts`, `audit.ts`), which return English records. Every collection, field and stored value name is in `lib/mongo-names.ts`, the counterpart of `store/names.go`.
 - `lib/env.ts` is the only reader of `process.env` outside tests: an empty value counts as unset.
+- On Cloudflare the `MongoClient` lives in the `MongoGateway` Durable Object (`lib/mongo-gateway.ts`), since a Worker can't reuse another request's socket: `collection()` in `lib/mongodb.ts` turns each driver call into a `MongoOperation` (`lib/mongo-operation.ts`) sent over RPC as EJSON; under Node (`next dev`, scripts) it runs on the driver directly. A driver method new to the repositories goes into all three files. Nothing in the Worker may load a native `.node` module (hence argon2 from `@noble/hashes`). `npm run cf-typegen` writes `cloudflare-env.d.ts`, which typecheck needs.
 - Admin API routes, Server Actions and the dashboard layout check `requireAdmin()` (`lib/require-admin.ts`); API routes answer its 401 without a session and 403 without the admin role.
 - Styling is Tailwind v4 with shadcn/ui (dark only): the theme tokens live in `app/globals.css`, and `components/ui` holds the shadcn components (`npx shadcn add <name>`) next to the panel's own. Charts use Recharts through `components/ui/chart.tsx`. A test fake used by more than one test is `lib/fake-*.ts`, imported only by tests.
 
@@ -100,6 +101,6 @@ TypeScript ↔ Go contracts that only break in production, silently — change o
 - **Invite hash**: `panel/lib/token.ts` (SHA-256) ↔ `internal/provisiond/auth/auth.go`.
 - **Connection token**: `panel/lib/connection-token.ts` (built from `PROVISIOND_LEASE_URL` and `PROVISIOND_FINGERPRINT`) ↔ `internal/connectiontoken/token.go`.
 - **SSE ticket**: `panel/lib/ticket.ts` ↔ `ValidateTicketAt` in `internal/provisiond/auth/ticket.go` (`{uid, role, exp}` as unpadded base64url JSON + HMAC-SHA256 with `VPN_LIVE_SECRET`).
-- `VPN_PANEL_SECRET` and `VPN_LIVE_SECRET` must hold the same value on Vercel and on the server.
+- `VPN_PANEL_SECRET` and `VPN_LIVE_SECRET` must hold the same value in the panel's Worker secrets and on the server.
 
 The wire shapes of the lease request and response, the admin action response, the SSE snapshot, the ticket payload and the connection token payload live in `testdata/contracts/`. `go test` checks them against the Go types (`internal/contracttest`), and the panel against its TypeScript types (`panel/lib/contracts.test.ts`, enforced by `npm run typecheck`). A wire change updates the fixture, and both sides must follow.

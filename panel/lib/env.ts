@@ -6,7 +6,8 @@ const DEFAULT_MONGODB_DB = 'vpn'
 const DEFAULT_SERVER_NAME = 'wg0'
 const DEFAULT_WG_PORT = '51820/udp'
 
-// Vercel and .env.example leave unused variables empty; an empty or blank value counts as unset.
+// .env.example and hosting dashboards leave unused variables empty; an empty or blank value counts
+// as unset.
 function present(value: string | undefined): string | undefined {
   return value?.trim() ? value : undefined
 }

@@ -42,7 +42,7 @@ O projeto tem três partes, e o cliente tem uma versão para Android:
 | **Cliente** (`cmd/discord-go-vpn`) | no computador de quem usa | sobe o túnel, põe o Discord dentro dele e mostra o estado na tela |
 | **App Android** (`android/`, `mobile/`) | no celular de quem usa | o mesmo cliente, com a VPN do Android restrita ao app do Discord |
 | **Servidor** (`server/`, `cmd/provisiond`) | numa VPS | o WireGuard e o `provisiond`, que entrega acessos temporários a quem roda o cliente |
-| **Painel** (`panel/`) | Vercel + MongoDB Atlas | onde o administrador vê quem está conectado e derruba acessos, e gera os convites que viram tokens de conexão |
+| **Painel** (`panel/`) | Cloudflare Workers + MongoDB Atlas | onde o administrador vê quem está conectado e derruba acessos, e gera os convites que viram tokens de conexão |
 
 Só o cliente é obrigatório. Com um arquivo `.conf` de qualquer provedor
 WireGuard ele funciona sozinho; o servidor e o painel existem para distribuir
@@ -67,7 +67,7 @@ flowchart LR
     end
 
     subgraph NUVEM["Serviços gerenciados"]
-        PANEL["Painel Next.js<br/>Vercel"]
+        PANEL["Painel Next.js<br/>Cloudflare Workers"]
         DB[("MongoDB Atlas")]
     end
 

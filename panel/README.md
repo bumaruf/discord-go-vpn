@@ -1,7 +1,8 @@
 # Painel
 
 Interface web de administração da VPN: gerar convites, ver quem está conectado,
-desconectar máquinas e revogar acessos. **Next.js na Vercel, MongoDB no Atlas.**
+desconectar máquinas e revogar acessos. **Next.js num Cloudflare Worker (OpenNext),
+MongoDB no Atlas.**
 
 - Arquitetura do projeto inteiro, com diagrama: [`../README.md`](../README.md#arquitetura)
 - O lado do servidor (Caddy, secrets, rotas): [`../server/README.md`](../server/README.md)
@@ -12,7 +13,7 @@ desconectar máquinas e revogar acessos. **Next.js na Vercel, MongoDB no Atlas.*
 - [Como as peças se falam](#como-as-peças-se-falam)
 - [Rodando localmente](#rodando-localmente)
 - [Variáveis de ambiente](#variáveis-de-ambiente)
-- [Publicando na Vercel](#publicando-na-vercel)
+- [Publicando na Cloudflare](#publicando-na-cloudflare)
 - [Estrutura](#estrutura)
 - [O que sustenta o desenho](#o-que-sustenta-o-desenho)
 
@@ -109,8 +110,16 @@ Antes de abrir um PR:
 npm run lint                   # ESLint, falha com qualquer aviso
 npm run typecheck              # tsc --noEmit
 npm run format:check           # Prettier (npm run format corrige)
+npm run cf-typegen             # tipos do runtime da Cloudflare (cloudflare-env.d.ts), que o typecheck usa
 npm test                       # Vitest; os testes ficam ao lado do arquivo, em *.test.ts
 npm run build
+```
+
+Para rodar no runtime da Cloudflare (workerd) em vez do Node, com as variáveis
+num `.dev.vars` (mesmo formato do `.env.local`, ignorado pelo git):
+
+```sh
+npm run preview                # build do OpenNext + wrangler dev em http://localhost:8787
 ```
 
 Três armadilhas que custam uma tarde:
@@ -124,9 +133,14 @@ Três armadilhas que custam uma tarde:
 - **O hash sai em base64 de propósito.** O Next expande `$VAR` dentro de
   arquivos `.env`, e um hash argon2 é cheio de `$`. Colado cru, ele chega
   mutilado e o sintoma é só "senha incorreta" — e apenas na sua máquina, porque
-  na Vercel o valor é injetado direto.
-- **`AUTH_TRUST_HOST=true` é obrigatório fora da Vercel.** Sem ele toda rota de
-  autenticação responde 500, com um erro que não diz o que fazer.
+  na Cloudflare o valor é injetado direto.
+- **`AUTH_TRUST_HOST=true` é obrigatório**, também na Cloudflare (o Auth.js só
+  detecta a Vercel sozinho). Sem ele toda rota de autenticação responde 500, com
+  um erro que não diz o que fazer.
+- **No `npm run preview`, o `/dashboard` volta para o login** mesmo logado:
+  sem `X-Forwarded-Proto`, o proxy do Auth.js supõe `https` e procura o cookie
+  `__Secure-…`, que um login em `http` não grava. Em produção a Cloudflare manda
+  o header; localmente, teste com `curl -H "X-Forwarded-Proto: http"`.
 
 ## Variáveis de ambiente
 
@@ -138,7 +152,7 @@ O [`.env.example`](.env.example) tem os comentários completos.
 | `ADMIN_PASSWORD_HASH` | sim* | hash da senha (`npm run hash-password`) |
 | `ADMIN_PASSWORD` | não | alternativa em texto claro — evite |
 | `AUTH_SECRET` | sim | assina a sessão (`openssl rand -base64 32`) |
-| `AUTH_TRUST_HOST` | fora da Vercel | `true` |
+| `AUTH_TRUST_HOST` | sim | `true` |
 | `NEXTAUTH_URL` | sim | URL pública do painel |
 | `MONGODB_URI`, `MONGODB_DB` | sim | o banco (padrão do nome: `vpn`) |
 | `PROVISIOND_URL` | sim | `https://` + o `PANEL_DOMAIN` do servidor |
@@ -157,26 +171,72 @@ Uma variável vazia ou só com espaços conta como ausente e cai no padrão.
 Sem as variáveis, o app **builda e não funciona** — a falha só aparece em
 runtime.
 
-## Publicando na Vercel
+## Publicando na Cloudflare
 
-Em produção, o projeto é o **`vpn-painel`** (time `bumaruf-projects`), ligado a
-este repositório com **Root Directory `panel`** e branch de produção `main`.
-O `ignoreCommand` do [`vercel.json`](vercel.json) pula o build quando nada em
-`panel/` mudou desde o último deploy bem-sucedido da branch; sem esse deploy de
-referência (primeiro push da branch, histórico raso), o build roda.
+Em produção, o painel é o Worker **`discord-go-vpn-panel`** da conta pessoal
+`bumaruf`, construído pelo [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare)
+e configurado em [`wrangler.jsonc`](wrangler.jsonc). Precisa do **Workers Paid**:
+o argon2 do login gasta ~150 ms de CPU, e o plano free para em 10 ms. O bundle
+(~3,4 MB gzip) também passa do limite do free (3 MB).
 
-Para montar um deploy novo:
+A CI publica sozinha ([`deploy-panel.yml`](../.github/workflows/deploy-panel.yml)),
+sempre depois do job `Panel` passar e só quando `panel/` mudou:
 
-1. **Root Directory `panel`** nas configurações do projeto.
-2. **As variáveis de ambiente** da tabela acima.
-3. **Um domínio próprio.** Com *Vercel Authentication* ligada, o domínio
-   `*.vercel.app` pede login de uma conta do time; o domínio próprio abre
-   normalmente e as URLs de preview seguem protegidas.
-4. **`0.0.0.0/0` no Network Access do Atlas.** A Vercel não tem IP de saída
-   fixo no plano hobby — a senha do usuário do banco passa a ser a única
-   barreira. Use um usuário do banco só para o painel, separado do servidor.
-5. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
+- **Pull request:** um Workers Preview `pr-<n>`, com a URL comentada no PR.
+  Fechar o PR apaga o Preview. Previews são **públicos** (o login do painel
+  continua valendo); para fechá-los, ponha o Cloudflare Access na frente.
+- **Push na `main`:** deploy de produção.
+
+### O Mongo passa por um Durable Object
+
+Um Worker não reaproveita, num request, o socket aberto por outro: o
+`MongoClient` em `globalThis` trava no segundo request ("code had hung"), e um
+cliente por request pagaria o handshake TLS + SCRAM com o Atlas em toda página.
+Por isso o cliente vive no Durable Object `MongoGateway`
+([`lib/mongo-gateway.ts`](lib/mongo-gateway.ts)), que pode manter conexões entre
+requests. Os repositórios continuam chamando `collection()`; o
+[`lib/mongodb.ts`](lib/mongodb.ts) transforma cada chamada numa operação
+(`lib/mongo-operation.ts`) e a manda por RPC ao Durable Object, em EJSON para que
+`ObjectId` e `Date` cheguem inteiros. No `next dev` (Node), a mesma operação roda
+direto no driver. Operação nova do driver nos repositórios entra nos três
+arquivos.
+
+O objeto nasce perto do primeiro request que o usa. Com o Atlas longe disso,
+cada query paga a distância: dá para fixar a região com `locationHint` em
+`lib/mongodb.ts`.
+
+### Montando do zero
+
+1. **Token da API** (dash.cloudflare.com → *My Profile* → *API Tokens*), com o
+   template *Edit Cloudflare Workers*: a conta inteira e, se for usar domínio
+   próprio, *Workers Routes: Edit* na zona. Sem filtro de IP (os runners do
+   GitHub mudam de IP).
+2. **Secrets do repositório:** `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`.
+   **Variáveis do repositório** (*Settings → Secrets and variables → Variables*):
+   `NEXT_PUBLIC_SERVER_NAME` e `NEXT_PUBLIC_WG_PORT`, se usadas. O build embute
+   as `NEXT_PUBLIC_*` no JavaScript do navegador, então elas vêm do build, não
+   do Worker.
+3. **Primeiro deploy**, que cria o Worker (os Previews da CI falham até ele
+   existir). Sem `wrangler login`: o wrangler lê `CLOUDFLARE_ACCOUNT_ID` e
+   `CLOUDFLARE_API_TOKEN` do `.env.local` do painel e os prefere ao login
+   OAuth. Confira a conta com `npx wrangler whoami`, rode `npm run deploy` e
+   tire as duas linhas do arquivo.
+4. **Secrets do Worker**, as variáveis da tabela acima sem as `NEXT_PUBLIC_*`:
+   `npx wrangler secret put NOME` para produção e
+   `npx wrangler preview base-config secret put NOME` para os Previews, que
+   não herdam os de produção. `NEXTAUTH_URL` é a URL pública do painel.
+5. **`0.0.0.0/0` no Network Access do Atlas.** O Worker não tem IP de saída
+   fixo, então a senha do usuário do banco é a única barreira. Use um usuário só
+   para o painel, separado do servidor.
+6. **Domínio próprio:** com a zona ativa na conta, descomente `routes` no
+   `wrangler.jsonc` (`custom_domain: true`). O deploy da CI troca os registros
+   DNS conflitantes pelo Worker; não apague os antigos antes.
+7. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
    duas secrets com os mesmos valores. Veja [`../server/README.md`](../server/README.md#painel-perfil-panel).
+
+Enquanto a Vercel ainda servir o domínio, o [`vercel.json`](vercel.json)
+continua valendo: ele pula o build da Vercel quando nada em `panel/` mudou. Some
+junto com o projeto `vpn-painel`, depois do corte do domínio.
 
 ## Estrutura
 
@@ -209,7 +269,10 @@ lib/
   toast-result.ts         mostra o resultado de uma Server Action num toast
   utils.ts                `cn`, que junta classes do Tailwind (usado pelos componentes do shadcn)
   mongo-names.ts          nomes de coleção, campo e valor gravado no Mongo, num lugar só
-  mongodb.ts              conexão com cache global (obrigatório em serverless)
+  mongodb.ts              `collection()`: manda cada operação ao Durable Object (ou direto ao driver no Node)
+  mongo-operation.ts      as operações do driver que os repositórios usam, e a conexão
+  mongo-gateway.ts        o Durable Object que guarda o MongoClient na Cloudflare
+  password.ts             argon2id em JS puro (o Worker não carrega módulo nativo)
   invites.ts, devices.ts, repositórios: páginas, rotas e ações leem e gravam o Mongo
   sessions.ts, samples.ts só por eles
   audit.ts                grava a auditoria das ações
@@ -231,6 +294,9 @@ scripts/
   merge-devices.ts        `npm run merge-devices`
 auth.ts, auth.config.ts   Auth.js (Credentials + sessão JWT; a duração vem de `lib/session-max-age.ts`)
 proxy.ts                  protege a navegação de /dashboard
+worker.ts                 entrada do Worker: o handler do OpenNext mais o MongoGateway
+wrangler.jsonc            o Worker, seus bindings e o Durable Object
+open-next.config.ts       cache do OpenNext (páginas estáticas dos assets, sem R2/KV)
 ```
 
 ## O que sustenta o desenho

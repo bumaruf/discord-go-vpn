@@ -29,7 +29,7 @@ uma banda só seus.
 ```mermaid
 flowchart TB
     CLI["discord-go-vpn<br/>(clientes)"]
-    ADM["Painel na Vercel<br/>e navegador do admin"]
+    ADM["Painel na Cloudflare<br/>e navegador do admin"]
     DB[("MongoDB Atlas")]
 
     subgraph VPS["VPS · docker compose"]
@@ -178,7 +178,7 @@ aparecer, o problema é uma das [duas barreiras da Oracle](#4-libere-as-portas).
 
 ## Painel (perfil `panel`)
 
-O painel na Vercel e o navegador do admin precisam de um certificado que uma
+O painel na Cloudflare e o navegador do admin precisam de um certificado que uma
 autoridade conheça, e o do `provisiond` é [autoassinado](#por-que-é-assim). O
 Caddy resolve isso sem tocar no certificado que os clientes fixam.
 
@@ -201,9 +201,9 @@ VPN_LIVE_SECRET=...                            # openssl rand -base64 32
 sudo docker compose --profile panel up -d
 ```
 
-**4. Leve os valores para a Vercel.** Os dois lados precisam do **mesmo valor**:
+**4. Leve os valores para os secrets do Worker do painel.** Os dois lados precisam do **mesmo valor**:
 
-| No painel (Vercel) | Vem de |
+| No painel (Cloudflare) | Vem de |
 |---|---|
 | `PROVISIOND_URL` | `https://` + `PANEL_DOMAIN` |
 | `PROVISIOND_LEASE_URL` | `https://SEU_IP:51821`, o endereço que vai dentro do token de conexão |
