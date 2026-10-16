@@ -16,7 +16,6 @@
       "service": "discord-go-vpn-panel",
     },
   ],
-  // Failed logins per address (lib/login-attempts.ts).
   "kv_namespaces": [{ "binding": "LOGIN_ATTEMPTS", "id": "416f660c3ba34ee18b3e45870427776a" }],
   // v1 created the MongoGateway Durable Object, since replaced by provisiond's admin routes; a
   // deployed class is removed by a migration, never by dropping it from this list.
@@ -24,7 +23,7 @@
     { "tag": "v1", "new_sqlite_classes": ["MongoGateway"] },
     { "tag": "v2", "deleted_classes": ["MongoGateway"] },
   ],
-  // The panel's public URL: NEXTAUTH_URL here and PANEL_ORIGIN on the server must match it.
+  // The panel's public URL: the NEXTAUTH_URL secret and the server's PANEL_ORIGIN must match it.
   "routes": [{ "pattern": "vpn.bumaruf.dev", "custom_domain": true }],
   // Previews get a workers.dev URL only with this on.
   "preview_urls": true,

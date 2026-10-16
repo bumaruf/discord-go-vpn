@@ -1,8 +1,27 @@
-import { ObjectId, type Db } from 'mongodb'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { fakeCollection, fakeCursor } from './fake-collection'
+import { ObjectId, type Collection, type Db } from 'mongodb'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mergeDevices, planDeviceMerges } from './merge-devices'
 import { COLLECTION } from './mongo-names'
+
+function fakeCursor<T>(docs: T[]) {
+  const cursor = { sort: vi.fn(), limit: vi.fn(), toArray: vi.fn(async () => docs) }
+  cursor.sort.mockReturnValue(cursor)
+  cursor.limit.mockReturnValue(cursor)
+  return cursor
+}
+
+function fakeCollection() {
+  const fake = {
+    find: vi.fn(),
+    findOne: vi.fn(),
+    aggregate: vi.fn(),
+    insertOne: vi.fn(),
+    updateOne: vi.fn(),
+    updateMany: vi.fn(),
+    deleteOne: vi.fn(),
+  }
+  return { ...fake, asCollection: () => fake as unknown as Collection }
+}
 
 const OLD = new ObjectId('66e2f0a1b2c3d4e5f6a7b8c9')
 const CURRENT = new ObjectId('66e2f0a1b2c3d4e5f6a7b8ca')

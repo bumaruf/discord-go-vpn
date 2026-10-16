@@ -38,10 +38,9 @@ describe('ensureIndexes', () => {
     expect(lines).toEqual([
       'invites.tokenHash (unique), invites.status+createdAt',
       'devices.inviteId+name+osUser (unique, case-insensitive), devices.lastSeenAt',
-      'sessions.inviteId+updatedAt, sessions.deviceId+startedAt',
+      'sessions.deviceId+startedAt',
       'daily_usage.identity+day',
       'audit_log.at',
-      'login_attempts.expiresAt (TTL)',
       'samples (already exists)',
     ])
     expect(indexes('invites')).toEqual([
@@ -59,14 +58,9 @@ describe('ensureIndexes', () => {
       ],
       [{ lastSeenAt: -1 }],
     ])
-    expect(indexes('sessions')).toEqual([
-      [{ inviteId: 1, updatedAt: -1 }],
-      [{ deviceId: 1, startedAt: -1 }],
-      [{ updatedAt: -1 }],
-    ])
+    expect(indexes('sessions')).toEqual([[{ deviceId: 1, startedAt: -1 }]])
     expect(indexes('daily_usage')).toEqual([[{ identity: 1, day: -1 }]])
     expect(indexes('audit_log')).toEqual([[{ at: -1 }]])
-    expect(indexes('login_attempts')).toEqual([[{ expiresAt: 1 }, { expireAfterSeconds: 0 }]])
     expect(database.listCollections).toHaveBeenCalledWith({ name: 'samples' })
     expect(database.createCollection).not.toHaveBeenCalled()
   })

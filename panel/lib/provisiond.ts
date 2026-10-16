@@ -16,7 +16,6 @@ export interface ActionResponse {
   executed_at: string
 }
 
-/** PROVISIOND_URL or VPN_PANEL_SECRET is unset in this panel. */
 export class ProvisiondNotConfigured extends Error {
   constructor() {
     super('set PROVISIOND_URL and VPN_PANEL_SECRET')
@@ -25,7 +24,6 @@ export class ProvisiondNotConfigured extends Error {
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
-/** provisiond holds the panel's only connections to the database: every read and write goes here. */
 async function send(method: Method, path: string, body?: unknown): Promise<Response> {
   const url = provisiondUrl(path)
   const secret = panelSecret()

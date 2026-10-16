@@ -1,4 +1,5 @@
-// The Mongo names, shared with provisiond (internal/provisiond/store/names.go).
+// The Mongo names the Node scripts and the invite and audit wire values use. provisiond's
+// internal/provisiond/store/names.go holds the full set, and every name here must match it.
 
 const STORED_NAMES = {
   collection: {
@@ -8,21 +9,13 @@ const STORED_NAMES = {
     samples: 'samples',
     dailyUsage: 'daily_usage',
     auditLog: 'audit_log',
-    loginAttempts: 'login_attempts',
   },
   field: {
     id: '_id',
     tokenHash: 'tokenHash',
     status: 'status',
-    kind: 'kind',
     label: 'label',
-    prefix: 'prefix',
-    createdBy: 'createdBy',
     createdAt: 'createdAt',
-    revokedAt: 'revokedAt',
-    expiresAt: 'expiresAt',
-    maxLeases: 'maxLeases',
-    attempts: 'attempts',
     inviteId: 'inviteId',
     deviceId: 'deviceId',
     name: 'name',
@@ -41,24 +34,14 @@ const STORED_NAMES = {
     txBytes: 'txBytes',
     timestamp: 'ts',
     meta: 'meta',
-    scope: 'scope',
     identity: 'identity',
-    downBps: 'downBps',
-    upBps: 'upBps',
     day: 'day',
     onlineSeconds: 'onlineSeconds',
-    actorId: 'actorId',
-    action: 'action',
-    target: 'target',
     at: 'at',
-    result: 'result',
-    detail: 'detail',
   },
   inviteStatus: { active: 'active', revoked: 'revoked' },
   inviteKind: { individual: 'individual', global: 'global' },
   sessionStatus: { online: 'online', offline: 'offline' },
-  sampleScope: { server: 'server', user: 'user' },
-  auditResult: { ok: 'ok', error: 'error' },
   auditAction: {
     createInvite: 'create_invite',
     revokeInvite: 'revoke_invite',
@@ -82,15 +65,6 @@ export const INVITE_KIND = STORED_NAMES.inviteKind
 
 export const SESSION_STATUS = STORED_NAMES.sessionStatus
 
-export const SAMPLE_SCOPE = STORED_NAMES.sampleScope
-
-export const AUDIT_RESULT = STORED_NAMES.auditResult
-
 export const AUDIT_ACTION = STORED_NAMES.auditAction
 
 export type ValueOf<T> = T[keyof T]
-
-/** A `$group`/`$sum` reference to a stored field. */
-export function fieldRef(field: ValueOf<typeof FIELD>): `$${typeof field}` {
-  return `$${field}`
-}
