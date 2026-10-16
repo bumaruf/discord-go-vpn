@@ -184,7 +184,8 @@ runtime.
 
 Em produção, o painel é o Worker **`discord-go-vpn-panel`** da conta pessoal
 `bumaruf`, construído pelo [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare)
-e configurado em [`wrangler.jsonc`](wrangler.jsonc). Precisa do **Workers Paid**:
+e configurado em [`wrangler.jsonc`](wrangler.jsonc), servindo **`vpn.bumaruf.dev`**
+(Custom Domain do Worker). Precisa do **Workers Paid**:
 o argon2 do login gasta ~150 ms de CPU, e o plano free para em 10 ms.
 
 A CI publica sozinha ([`deploy-panel.yml`](../.github/workflows/deploy-panel.yml)),
@@ -221,15 +222,16 @@ sempre depois do job `Panel` passar e só quando `panel/` mudou:
    wrangler lê o valor vazio e grava o secret em branco) para produção, e
    `npx wrangler preview base-config secret put NOME` para os Previews, que
    não herdam os de produção. `NEXTAUTH_URL` é a URL pública do painel.
-6. **Domínio próprio:** com a zona ativa na conta, descomente `routes` no
-   `wrangler.jsonc` (`custom_domain: true`). O deploy da CI troca os registros
-   DNS conflitantes pelo Worker; não apague os antigos antes.
+6. **Domínio próprio:** com a zona ativa na conta, o hostname em `routes` no
+   `wrangler.jsonc` (`custom_domain: true`) e em `NEXTAUTH_URL`. O deploy da CI
+   troca os registros DNS conflitantes pelo Worker (sem terminal, o wrangler não
+   pergunta); não apague os antigos antes.
 7. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
    duas secrets com os mesmos valores. Veja [`../server/README.md`](../server/README.md#painel-perfil-panel).
 
-Enquanto a Vercel ainda servir o domínio, o [`vercel.json`](vercel.json)
-continua valendo: ele pula o build da Vercel quando nada em `panel/` mudou. Some
-junto com o projeto `vpn-painel`, depois do corte do domínio.
+O [`vercel.json`](vercel.json) é do projeto `vpn-painel` da Vercel, que
+serviu o domínio antes da Cloudflare: ele pula o build da Vercel quando nada em
+`panel/` mudou. Some junto com o projeto, quando ele for desligado.
 
 ## Estrutura
 
