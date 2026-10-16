@@ -386,7 +386,7 @@ delas não está configurada.
 | Conexões por convite | o limite do convite, definido no painel (sem limite quando vazio) — acima dele, `429`; baixar o limite não derruba quem já está conectado |
 | Tokens recusados | 20 por minuto por IP em `/lease`, `/renew` e `/release`; depois disso, `429` sem consultar o banco até o minuto acabar. Um token fora do formato `vpn_…` é recusado sem consulta |
 | Faixa de endereços | `.10` a `.250` de `WG_SUBNET` (`10.9.0.10` a `10.9.0.250` no padrão) — esgotada, `503` |
-| Cache de convites | 60 s (revogar pelo painel limpa na hora; falha do banco não entra no cache) |
+| Cache de convites | 60 s (revogar, apagar ou mudar o limite pelo painel limpa na hora; falha do banco não entra no cache) |
 | Métricas | leitura a cada 1 s; gravação no Mongo a cada 5 s (servidor) e 30 s (por máquina), em segundo plano |
 | Fila de gravação com o Atlas lento ou fora | até 2000 escritas de cada tipo; cheia, sai a mais antiga |
 | Desligamento (`SIGTERM`) | streams ao vivo encerrados na hora; até 10 s para as outras requisições em andamento, depois até 10 s para enviar a fila de gravação e o consumo ainda não gravado; o Compose espera 30 s |

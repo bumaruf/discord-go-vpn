@@ -417,7 +417,7 @@ internal/ui/           a interface de texto
 internal/update/       a atualização automática: confere o manifesto assinado, troca o executável e reabre
 internal/wg/           lê o .conf
 mobile/                a API Go que o gomobile empacota para o app Android
-panel/                 painel de administração (Next.js + MongoDB)
+panel/                 painel de administração (Next.js num Cloudflare Worker)
 server/                o que roda na VPS (Docker Compose, Caddy, scripts)
 testdata/contracts/    os formatos de rede que o Go e o painel conferem
 docs/                  glossário dos termos do domínio
