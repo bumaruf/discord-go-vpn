@@ -11,7 +11,7 @@ const OLD_DEVICE_KEY_INDEX = `${FIELD.inviteId}_1_${FIELD.name}_1_${FIELD.osUser
 
 /** Idempotent, so `npm run setup` can run again; returns the lines the script prints. */
 export async function ensureIndexes(db: Db): Promise<string[]> {
-  const { invites, devices, sessions, dailyUsage, auditLog, loginAttempts } = COLLECTION
+  const { invites, devices, sessions, dailyUsage, auditLog } = COLLECTION
   const done: string[] = []
 
   // provisiond looks invites up by hash on every lease request.
@@ -25,23 +25,15 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
     `${devices}.${FIELD.inviteId}+${FIELD.name}+${FIELD.osUser} (unique, case-insensitive), ${devices}.${FIELD.lastSeenAt}`,
   )
 
-  await db.collection(sessions).createIndex({ [FIELD.inviteId]: 1, [FIELD.updatedAt]: -1 })
+  // npm run merge-devices moves sessions by device.
   await db.collection(sessions).createIndex({ [FIELD.deviceId]: 1, [FIELD.startedAt]: -1 })
-  await db.collection(sessions).createIndex({ [FIELD.updatedAt]: -1 })
-  done.push(
-    `${sessions}.${FIELD.inviteId}+${FIELD.updatedAt}, ${sessions}.${FIELD.deviceId}+${FIELD.startedAt}`,
-  )
+  done.push(`${sessions}.${FIELD.deviceId}+${FIELD.startedAt}`)
 
   await db.collection(dailyUsage).createIndex({ [FIELD.identity]: 1, [FIELD.day]: -1 })
   done.push(`${dailyUsage}.${FIELD.identity}+${FIELD.day}`)
 
   await db.collection(auditLog).createIndex({ [FIELD.at]: -1 })
   done.push(`${auditLog}.${FIELD.at}`)
-
-  await db
-    .collection(loginAttempts)
-    .createIndex({ [FIELD.expiresAt]: 1 }, { expireAfterSeconds: 0 })
-  done.push(`${loginAttempts}.${FIELD.expiresAt} (TTL)`)
 
   done.push(await ensureSamplesCollection(db))
   return done

@@ -64,7 +64,6 @@ export async function listRecentInvites(): Promise<Invite[]> {
   return invites.map((invite) => ({
     id: invite.id,
     label: invite.label,
-    // provisiond stores only the two kinds; anything else reads as the original kind.
     kind: isInviteKind(invite.kind) ? invite.kind : INVITE_KIND.individual,
     prefix: invite.prefix,
     active: invite.status === INVITE_STATUS.active,

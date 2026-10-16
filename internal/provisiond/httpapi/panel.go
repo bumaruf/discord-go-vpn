@@ -92,7 +92,6 @@ type auditRequest struct {
 	Detail  string `json:"detail"`
 }
 
-// usageCache keeps usage answers for usageCacheTTL, keyed by query.
 type usageCache struct {
 	mu      sync.Mutex
 	entries map[string]usageEntry
@@ -124,7 +123,6 @@ func (c *usageCache) put(key string, days []dayUsageJSON, now time.Time) {
 	c.entries[key] = usageEntry{days: days, expires: now.Add(usageCacheTTL)}
 }
 
-// panelData answers 503 and returns false without a database.
 func (s *server) panelData(w http.ResponseWriter) (store.PanelData, bool) {
 	if s.data == nil {
 		http.Error(w, noDatabaseMessage, http.StatusServiceUnavailable)
@@ -133,7 +131,6 @@ func (s *server) panelData(w http.ResponseWriter) (store.PanelData, bool) {
 	return s.data, true
 }
 
-// databaseFailed logs err and answers 503: the panel tells the admin the database didn't answer.
 func databaseFailed(w http.ResponseWriter, what string, err error) {
 	log.Printf("panel: %s: %v", what, err)
 	http.Error(w, "o banco não respondeu", http.StatusServiceUnavailable)
@@ -198,8 +195,6 @@ func (s *server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	respond(w, resp)
 }
 
-// handleUsage sums daily usage from ?from=YYYY-MM-DD on: of the whole server, or of one device
-// with ?device=<id>.
 func (s *server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	device := r.URL.Query().Get("device")
@@ -264,7 +259,7 @@ func (s *server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	s.respondAction(w, actionResponse{OK: true, Message: "Convite criado", Affected: 1})
 }
 
-// handleDeleteInvite removes the invite document only; the panel revokes it first, and its
+// handleDeleteInvite removes the document only: the panel revokes the invite first, and its
 // devices keep their history.
 func (s *server) handleDeleteInvite(w http.ResponseWriter, r *http.Request) {
 	data, ok := s.panelData(w)

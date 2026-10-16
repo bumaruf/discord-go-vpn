@@ -14,7 +14,6 @@ import (
 type PanelData interface {
 	// ListInvites returns the newest invites first, each with its device count.
 	ListInvites(ctx context.Context, limit int) ([]InviteSummary, error)
-	// InviteLabels returns invite labels keyed by invite id.
 	InviteLabels(ctx context.Context, limit int) (map[string]string, error)
 	// ListDevices returns the most recently seen devices first.
 	ListDevices(ctx context.Context, limit int) ([]DeviceSummary, error)
