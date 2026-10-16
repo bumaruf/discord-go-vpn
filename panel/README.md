@@ -223,9 +223,13 @@ sempre depois do job `Panel` passar e só quando `panel/` mudou:
    `npx wrangler preview base-config secret put NOME` para os Previews, que
    não herdam os de produção. `NEXTAUTH_URL` é a URL pública do painel.
 6. **Domínio próprio:** com a zona ativa na conta, o hostname em `routes` no
-   `wrangler.jsonc` (`custom_domain: true`) e em `NEXTAUTH_URL`. O deploy da CI
-   troca os registros DNS conflitantes pelo Worker (sem terminal, o wrangler não
-   pergunta); não apague os antigos antes.
+   `wrangler.jsonc` (`custom_domain: true`) e em `NEXTAUTH_URL`. Se o hostname
+   já tem um registro (como o CNAME da Vercel tinha), o deploy falha com
+   `code: 100117`, porque o token não tem `DNS Write`. Nesse caso, apague o
+   registro e, no mesmo instante, ligue o domínio ao Worker com
+   `PUT /accounts/{id}/workers/domains` (`hostname`, `service`, `zone_id`,
+   `environment: production`): o site fica fora só esse intervalo. Depois disso,
+   os deploys passam.
 7. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
    duas secrets com os mesmos valores. Veja [`../server/README.md`](../server/README.md#painel-perfil-panel).
 

@@ -24,8 +24,7 @@
     { "tag": "v1", "new_sqlite_classes": ["MongoGateway"] },
     { "tag": "v2", "deleted_classes": ["MongoGateway"] },
   ],
-  // The panel's public URL: NEXTAUTH_URL here and PANEL_ORIGIN on the server must match it. A
-  // deploy from CI replaces any conflicting DNS record on its own.
+  // The panel's public URL: NEXTAUTH_URL here and PANEL_ORIGIN on the server must match it.
   "routes": [{ "pattern": "vpn.bumaruf.dev", "custom_domain": true }],
   // Previews get a workers.dev URL only with this on.
   "preview_urls": true,
