@@ -42,7 +42,7 @@ O projeto tem três partes, e o cliente tem uma versão para Android:
 | **Cliente** (`cmd/discord-go-vpn`) | no computador de quem usa | sobe o túnel, põe o Discord dentro dele e mostra o estado na tela |
 | **App Android** (`android/`, `mobile/`) | no celular de quem usa | o mesmo cliente, com a VPN do Android restrita ao app do Discord |
 | **Servidor** (`server/`, `cmd/provisiond`) | numa VPS | o WireGuard e o `provisiond`, que entrega acessos temporários a quem roda o cliente |
-| **Painel** (`panel/`) | Vercel + MongoDB Atlas | onde o administrador vê quem está conectado e derruba acessos, e gera os convites que viram tokens de conexão |
+| **Painel** (`panel/`) | Cloudflare Workers + MongoDB Atlas | onde o administrador vê quem está conectado e derruba acessos, e gera os convites que viram tokens de conexão |
 
 Só o cliente é obrigatório. Com um arquivo `.conf` de qualquer provedor
 WireGuard ele funciona sozinho; o servidor e o painel existem para distribuir
@@ -67,7 +67,7 @@ flowchart LR
     end
 
     subgraph NUVEM["Serviços gerenciados"]
-        PANEL["Painel Next.js<br/>Vercel"]
+        PANEL["Painel Next.js<br/>Cloudflare Workers"]
         DB[("MongoDB Atlas")]
     end
 
@@ -81,11 +81,10 @@ flowchart LR
     WG == "NAT" ==> NET
     OUTROS -- "rede normal" --> NET
 
-    PROV -- "registra dispositivos<br/>grava métricas" --> DB
-    PANEL -- "dispositivos, histórico" --> DB
+    PROV -- "registra dispositivos, grava métricas,<br/>lê e grava para o painel" --> DB
     ADMIN -- "HTTPS" --> PANEL
     ADMIN -- "ao vivo, SSE 1/s" --> CADDY
-    PANEL -- "ações: desconectar,<br/>revogar" --> CADDY
+    PANEL -- "dados e ações:<br/>convites, dispositivos, histórico" --> CADDY
     CADDY -- "/admin/*" --> PROV
 ```
 
@@ -104,7 +103,9 @@ flowchart LR
 
 O painel fica ao lado, sem entrar no caminho do túnel: o `provisiond` grava
 métricas no Atlas e transmite o estado ao vivo direto para o navegador do
-administrador, passando pelo Caddy, que dá o certificado válido. Detalhes em
+administrador, passando pelo Caddy, que dá o certificado válido. O painel não
+conecta no Atlas: convites, dispositivos e histórico também passam pelo
+`provisiond`. Detalhes em
 [`server/`](server/README.md) e [`panel/`](panel/README.md).
 
 ### Uma sessão, do começo ao fim

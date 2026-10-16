@@ -22,12 +22,12 @@ Three deliverables in one repository, talking over the network:
 
 - **Client** (`cmd/discord-go-vpn` + `internal/`) — runs the whole Discord process inside a WireGuard tunnel: a network namespace on Linux, the WireSock WFP filter on Windows, so gateway and media (WebRTC over UDP) leave from the same IP. The **Android app** (`android/` + `mobile/`) is the same client on a phone.
 - **`provisiond`** (`cmd/provisiond` + `internal/provisiond/`) — runs on the VPS via `server/` (Docker Compose). Hands out short-lived WireGuard peer leases (`wg set`), collects metrics, serves live SSE and the admin routes.
-- **Panel** (`panel/`) — Next.js 16 on Vercel + MongoDB Atlas, admin-only. It has its own `panel/AGENTS.md`: this Next version differs from what the model knows; read `node_modules/next/dist/docs/` before writing code there.
+- **Panel** (`panel/`) — Next.js 16 on a Cloudflare Worker (`@opennextjs/cloudflare`) + MongoDB Atlas, admin-only. It has its own `panel/AGENTS.md`: this Next version differs from what the model knows; read `node_modules/next/dist/docs/` before writing code there.
 
 Reference docs, so this file doesn't duplicate them:
 - `README.md` → *Arquitetura*: diagrams of the whole system and of one client session.
 - `server/README.md` → *Referência*: `provisiond` routes and auth, env vars, files in the volume, timings and limits.
-- `panel/README.md`: panel env vars, local setup, Vercel deploy.
+- `panel/README.md`: panel env vars, local setup, Cloudflare deploy.
 
 ## Commands
 
@@ -54,6 +54,7 @@ go test ./internal/wg -run TestName -count=1   # single test
 
 Integration tests skip themselves without their env vars; the exact command is in each file's comment:
 - `internal/provisiond/auth/auth_integration_test.go` — `MONGODB_INTEGRATION=1` + `MONGODB_URI` (real Mongo; drops `invites` in database `vpn_auth_test`).
+- `internal/provisiond/store/panel_integration_test.go` — the same variables (drops database `vpn_panel_test`): the panel data queries.
 - `internal/provisiond/auth/interop_test.go` — `TICKET_INTEROP` + `TICKET_SECRET` (ticket signed by the panel).
 
 Panel (`panel/`): `npm run dev`, `npm run lint` (fails on warnings), `npm run typecheck`, `npm run format:check` (`npm run format` to fix), `npm test` (Vitest, `*.test.ts` next to the file under test), `npm run build`, `npm run setup` (collections and indexes, idempotent), `npm run hash-password -- "password"` (base64 argon2 hash for `.env.local`).
@@ -81,14 +82,16 @@ Packages in `internal/`: `connectiontoken`, `app` (runs the TUI, or plain text w
 
 ## Panel architecture
 
-- Pages, API routes and Server Actions never query Mongo: they go through the repositories in `panel/lib/` (`invites.ts`, `devices.ts`, `sessions.ts`, `samples.ts`, `usage.ts`, `audit.ts`), which return English records. Every collection, field and stored value name is in `lib/mongo-names.ts`, the counterpart of `store/names.go`.
+- The panel never connects to Mongo: pages and Server Actions go through the repositories in `panel/lib/` (`invites.ts`, `devices.ts`, `usage.ts`, `audit.ts`), which return English records and call provisiond's panel data routes (`readProvisiond`/`writeProvisiond` in `lib/provisiond.ts`, `Bearer VPN_PANEL_SECRET`). provisiond holds the only pool of Atlas connections, next to the database; a Worker can't keep one between requests. Only the Node scripts (`npm run setup`, `merge-devices`) use the driver, with `lib/mongo-names.ts` (the counterpart of `store/names.go`) and `lib/documents.ts`.
+- Failed logins are counted per address in the `LOGIN_ATTEMPTS` Workers KV namespace (`lib/login-attempts.ts`), failing open.
 - `lib/env.ts` is the only reader of `process.env` outside tests: an empty value counts as unset.
+- Nothing in the Worker may load a native `.node` module (hence argon2 from `@noble/hashes`). `npm run cf-typegen` writes `cloudflare-env.d.ts` (gitignored) from `wrangler.jsonc`; `typecheck` and `build` run it first, since both type-check against it.
 - Admin API routes, Server Actions and the dashboard layout check `requireAdmin()` (`lib/require-admin.ts`); API routes answer its 401 without a session and 403 without the admin role.
 - Styling is Tailwind v4 with shadcn/ui (dark only): the theme tokens live in `app/globals.css`, and `components/ui` holds the shadcn components (`npx shadcn add <name>`) next to the panel's own. Charts use Recharts through `components/ui/chart.tsx`. A test fake used by more than one test is `lib/fake-*.ts`, imported only by tests.
 
 ## `provisiond` and the contracts with the panel
 
-- **Layout**: `cmd/provisiond/main.go` only parses flags and wires the packages in `internal/provisiond/`: `config` (the only env reader), `wireguard` (the `wg` CLI and dump parser), `lease` (registry, IP pool, reaper), `store` (Mongo; every collection, field and stored value name is in `store/names.go`), `auth` (invites, SSE ticket, bearer), `metrics` (collector), `live` (SSE hub and handler), `httpapi` (routes and handlers, where the HTTP tests live) and `tlscert`. Test fakes shared across packages live in `wireguardtest` and `authtest`.
+- **Layout**: `cmd/provisiond/main.go` only parses flags and wires the packages in `internal/provisiond/`: `config` (the only env reader), `wireguard` (the `wg` CLI and dump parser), `lease` (registry, IP pool, reaper), `store` (Mongo; every collection, field and stored value name is in `store/names.go`), `auth` (invites, SSE ticket, bearer), `metrics` (collector), `live` (SSE hub and handler), `httpapi` (routes and handlers, where the HTTP tests live; `panel.go` serves the panel's data, the reads and writes the panel used to make on Mongo itself, with daily usage cached 30s) and `tlscert`. Test fakes shared across packages live in `wireguardtest` and `authtest`.
 - Leases live in memory: 180s TTL, renewed by the client every 60s, expired by a `reaper` every 30s, so a client that dies silently is gone in ~3.5 min. On SIGTERM they are saved to `leases.json` in the volume (`lease/snapshot.go`), and the next start adopts those still unexpired whose peer is still on wg0 with the same address, so a deploy reconnects nobody; `metrics.Collector.Resume` keeps their usage from being counted twice. A restart without that file (a crash) leaves the peers of connected clients on wg0 without a lease: their next renewal gets a 410 and they reconnect, new leases skip their addresses, and the reaper removes such an orphan once its last handshake is more than 15 min old.
 - **Every access is an invite** (kind `individual` or `global`, which only the panel reads). Every lease registers a device keyed by invite + label + `os_user`, compared ignoring case; when that key finds nothing, the lease adopts the same machine's device stored without an OS user or under another invite (null included), and the same write moves it to this invite, so its usage history (grouped by device id) stays whole; `npm run merge-devices` merges a machine that already has two devices. The case-insensitive unique index behind the key is created by the panel's `npm run setup`, and its collation must match `deviceCollation` in `store`.
 - **Mongo is where devices are registered and invites are checked**, not only metrics. provisiond exits at startup without `MONGODB_URI` or when the database can't be opened, since a 401 would make clients discard their saved token while a server that is down doesn't. With Atlas down later, an invite already in the 60s cache in `auth` keeps working; an uncached one gets 503 on `/lease`, `/renew` and `/release`, which isn't cached, so it gets in as soon as Atlas answers. The SSE keeps running.
@@ -100,6 +103,6 @@ TypeScript ↔ Go contracts that only break in production, silently — change o
 - **Invite hash**: `panel/lib/token.ts` (SHA-256) ↔ `internal/provisiond/auth/auth.go`.
 - **Connection token**: `panel/lib/connection-token.ts` (built from `PROVISIOND_LEASE_URL` and `PROVISIOND_FINGERPRINT`) ↔ `internal/connectiontoken/token.go`.
 - **SSE ticket**: `panel/lib/ticket.ts` ↔ `ValidateTicketAt` in `internal/provisiond/auth/ticket.go` (`{uid, role, exp}` as unpadded base64url JSON + HMAC-SHA256 with `VPN_LIVE_SECRET`).
-- `VPN_PANEL_SECRET` and `VPN_LIVE_SECRET` must hold the same value on Vercel and on the server.
+- `VPN_PANEL_SECRET` and `VPN_LIVE_SECRET` must hold the same value in the panel's Worker secrets and on the server.
 
-The wire shapes of the lease request and response, the admin action response, the SSE snapshot, the ticket payload and the connection token payload live in `testdata/contracts/`. `go test` checks them against the Go types (`internal/contracttest`), and the panel against its TypeScript types (`panel/lib/contracts.test.ts`, enforced by `npm run typecheck`). A wire change updates the fixture, and both sides must follow.
+The wire shapes of the lease request and response, the admin action response, the panel data routes (`panel-*.json`), the SSE snapshot, the ticket payload and the connection token payload live in `testdata/contracts/`. `go test` checks them against the Go types (`internal/contracttest`), and the panel against its TypeScript types (`panel/lib/contracts.test.ts`, enforced by `npm run typecheck`). A wire change updates the fixture, and both sides must follow.

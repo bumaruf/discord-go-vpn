@@ -1,27 +1,37 @@
-import { ObjectId } from 'mongodb'
-import { collection } from './mongodb'
-import { COLLECTION, FIELD, INVITE_KIND, INVITE_STATUS, type ValueOf } from './mongo-names'
+import 'server-only'
 
-const RECENT_INVITES_LIMIT = 100
-const LABELS_LIMIT = 200
+import { INVITE_KIND, INVITE_STATUS, type ValueOf } from './mongo-names'
+import { readProvisiond, writeProvisiond } from './provisiond'
 
 export type InviteKind = ValueOf<typeof INVITE_KIND>
 
-interface InviteDocument {
-  [FIELD.id]: ObjectId
-  [FIELD.label]: string
-  /** Missing on invites created before kinds existed, which were all individual. */
-  [FIELD.kind]?: InviteKind
-  [FIELD.tokenHash]: string
-  [FIELD.prefix]: string
-  [FIELD.status]: ValueOf<typeof INVITE_STATUS>
-  /** The fixed admin's id, not an ObjectId. */
-  [FIELD.createdBy]: string
-  [FIELD.createdAt]: Date
-  [FIELD.revokedAt]?: Date
-  [FIELD.expiresAt]?: Date
-  /** provisiond refuses a new lease past this many; missing means no cap. */
-  [FIELD.maxLeases]?: number
+/** GET /admin/invites (testdata/contracts/panel-invites.json). */
+export interface InvitesResponse {
+  invites: {
+    id: string
+    label: string
+    kind: string
+    prefix: string
+    status: string
+    created_at: string
+    max_leases: number | null
+    device_count: number
+  }[]
+}
+
+/** POST /admin/invites (testdata/contracts/panel-create-invite.json). */
+export interface CreateInviteRequest {
+  label: string
+  kind: string
+  token_hash: string
+  prefix: string
+  created_by: string
+  max_leases?: number
+}
+
+/** PUT /admin/invites/{id}/max-leases (testdata/contracts/panel-max-leases.json). */
+export interface MaxLeasesRequest {
+  max_leases: number | null
 }
 
 export interface Invite {
@@ -32,6 +42,7 @@ export interface Invite {
   active: boolean
   createdAt: Date
   maxLeases: number | null
+  deviceCount: number
 }
 
 export interface NewInvite {
@@ -47,76 +58,48 @@ export function isInviteKind(value: unknown): value is InviteKind {
   return Object.values(INVITE_KIND).includes(value as InviteKind)
 }
 
-function invitesCollection() {
-  return collection<InviteDocument>(COLLECTION.invites)
-}
-
 /** Newest first. */
 export async function listRecentInvites(): Promise<Invite[]> {
-  const invites = await invitesCollection()
-  const docs = await invites
-    .find({})
-    .sort({ [FIELD.createdAt]: -1 })
-    .limit(RECENT_INVITES_LIMIT)
-    .toArray()
-
-  return docs.map((doc) => ({
-    id: doc[FIELD.id].toHexString(),
-    label: doc[FIELD.label],
-    kind: doc[FIELD.kind] ?? INVITE_KIND.individual,
-    prefix: doc[FIELD.prefix],
-    active: doc[FIELD.status] === INVITE_STATUS.active,
-    createdAt: doc[FIELD.createdAt],
-    maxLeases: doc[FIELD.maxLeases] ?? null,
+  const { invites } = await readProvisiond<InvitesResponse>('/admin/invites')
+  return invites.map((invite) => ({
+    id: invite.id,
+    label: invite.label,
+    // provisiond stores only the two kinds; anything else reads as the original kind.
+    kind: isInviteKind(invite.kind) ? invite.kind : INVITE_KIND.individual,
+    prefix: invite.prefix,
+    active: invite.status === INVITE_STATUS.active,
+    createdAt: new Date(invite.created_at),
+    maxLeases: invite.max_leases,
+    deviceCount: invite.device_count,
   }))
 }
 
-/** Invite labels keyed by invite id. */
-export async function inviteLabelsById(): Promise<Record<string, string>> {
-  const invites = await invitesCollection()
-  const docs = await invites
-    .find({}, { projection: { [FIELD.label]: 1 } })
-    .limit(LABELS_LIMIT)
-    .toArray()
-
-  return Object.fromEntries(docs.map((doc) => [doc[FIELD.id].toHexString(), doc[FIELD.label]]))
+function invitePath(inviteId: string): string {
+  return `/admin/invites/${encodeURIComponent(inviteId)}`
 }
 
 /** Removes the invite document only; its devices keep their history. False when nothing matched. */
-export async function deleteInvite(inviteId: string): Promise<boolean> {
-  if (!ObjectId.isValid(inviteId)) return false
-  const invites = await invitesCollection()
-  const { deletedCount } = await invites.deleteOne({ [FIELD.id]: new ObjectId(inviteId) })
-  return deletedCount === 1
+export function deleteInvite(inviteId: string): Promise<boolean> {
+  return writeProvisiond('DELETE', invitePath(inviteId))
 }
 
 /** `null` removes the cap. False when no invite matched. */
-export async function setInviteMaxLeases(
-  inviteId: string,
-  maxLeases: number | null,
-): Promise<boolean> {
-  if (!ObjectId.isValid(inviteId)) return false
-  const invites = await invitesCollection()
-  const update =
-    maxLeases === null
-      ? { $unset: { [FIELD.maxLeases]: '' as const } }
-      : { $set: { [FIELD.maxLeases]: maxLeases } }
-  const { matchedCount } = await invites.updateOne({ [FIELD.id]: new ObjectId(inviteId) }, update)
-  return matchedCount === 1
+export function setInviteMaxLeases(inviteId: string, maxLeases: number | null): Promise<boolean> {
+  const body: MaxLeasesRequest = { max_leases: maxLeases }
+  return writeProvisiond('PUT', `${invitePath(inviteId)}/max-leases`, body)
 }
 
 /** Stores an active invite. */
 export async function insertInvite(invite: NewInvite): Promise<void> {
-  const invites = await invitesCollection()
-  await invites.insertOne({
-    [FIELD.id]: new ObjectId(),
-    [FIELD.label]: invite.label,
-    [FIELD.kind]: invite.kind,
-    [FIELD.tokenHash]: invite.tokenHash,
-    [FIELD.prefix]: invite.prefix,
-    [FIELD.status]: INVITE_STATUS.active,
-    [FIELD.createdBy]: invite.createdBy,
-    [FIELD.createdAt]: new Date(),
-    ...(invite.maxLeases === null ? {} : { [FIELD.maxLeases]: invite.maxLeases }),
-  })
+  const body: CreateInviteRequest = {
+    label: invite.label,
+    kind: invite.kind,
+    token_hash: invite.tokenHash,
+    prefix: invite.prefix,
+    created_by: invite.createdBy,
+    ...(invite.maxLeases === null ? {} : { max_leases: invite.maxLeases }),
+  }
+  if (!(await writeProvisiond('POST', '/admin/invites', body))) {
+    throw new Error('provisiond answered 404 to POST /admin/invites')
+  }
 }

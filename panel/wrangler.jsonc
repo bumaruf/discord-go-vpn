@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "discord-go-vpn-panel",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-14",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "services": [
+    {
+      // Must match "name". Only revalidation uses it, which is why it stays out of `previews`,
+      // where a service binding would call production.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "discord-go-vpn-panel",
+    },
+  ],
+  // Failed logins per address (lib/login-attempts.ts).
+  "kv_namespaces": [{ "binding": "LOGIN_ATTEMPTS", "id": "416f660c3ba34ee18b3e45870427776a" }],
+  // v1 created the MongoGateway Durable Object, since replaced by provisiond's admin routes; a
+  // deployed class is removed by a migration, never by dropping it from this list.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MongoGateway"] },
+    { "tag": "v2", "deleted_classes": ["MongoGateway"] },
+  ],
+  // Added once the zone is active on Cloudflare.
+  // "routes": [{ "pattern": "<domain>", "custom_domain": true }],
+  // Previews get a workers.dev URL only with this on.
+  "preview_urls": true,
+  "observability": { "enabled": true },
+  // Previews don't inherit production's bindings: repeat every one the code reads from `env`.
+  "previews": {
+    "kv_namespaces": [{ "binding": "LOGIN_ATTEMPTS", "id": "416f660c3ba34ee18b3e45870427776a" }],
+  },
+}

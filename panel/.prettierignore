@@ -1,2 +1,5 @@
 package-lock.json
 *.md
+.open-next
+.wrangler
+cloudflare-env.d.ts

@@ -1,8 +1,6 @@
 import type { Db, ObjectId } from 'mongodb'
-import type { DeviceDocument } from './devices'
+import type { DailyUsageDocument, DeviceDocument, SessionDocument } from './documents'
 import { COLLECTION, FIELD } from './mongo-names'
-import type { SessionDocument } from './sessions'
-import type { DailyUsageDocument } from './usage'
 
 /**
  * Joins the devices of one machine, which used to get a new device, and so a new usage history,

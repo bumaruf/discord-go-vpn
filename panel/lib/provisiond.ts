@@ -16,22 +16,59 @@ export interface ActionResponse {
   executed_at: string
 }
 
-async function callProvisiond(path: string): Promise<ProvisiondResult> {
+/** PROVISIOND_URL or VPN_PANEL_SECRET is unset in this panel. */
+export class ProvisiondNotConfigured extends Error {
+  constructor() {
+    super('set PROVISIOND_URL and VPN_PANEL_SECRET')
+  }
+}
+
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+
+/** provisiond holds the panel's only connections to the database: every read and write goes here. */
+async function send(method: Method, path: string, body?: unknown): Promise<Response> {
   const url = provisiondUrl(path)
   const secret = panelSecret()
+  if (!url || !secret) throw new ProvisiondNotConfigured()
 
-  if (!url || !secret) {
-    return { ok: false, error: 'As ações não estão configuradas neste painel.' }
+  return fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+}
+
+/** Throws when provisiond or its database doesn't answer. */
+export async function readProvisiond<T>(path: string): Promise<T> {
+  const response = await send('GET', path)
+  if (!response.ok) {
+    throw new Error(`provisiond answered ${response.status} to GET ${path}`)
   }
+  return (await response.json()) as T
+}
 
+/** False when the route answers 404, which the invite routes do for an invite that doesn't exist. */
+export async function writeProvisiond(
+  method: Method,
+  path: string,
+  body?: unknown,
+): Promise<boolean> {
+  const response = await send(method, path, body)
+  if (response.status === 404) return false
+  if (!response.ok) {
+    throw new Error(`provisiond answered ${response.status} to ${method} ${path}`)
+  }
+  return true
+}
+
+async function callProvisiond(path: string): Promise<ProvisiondResult> {
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${secret}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
-
+    const response = await send('POST', path)
     if (!response.ok) {
       return { ok: false, error: await describeFailure(response) }
     }
@@ -39,6 +76,9 @@ async function callProvisiond(path: string): Promise<ProvisiondResult> {
     const body = (await response.json()) as ActionResponse
     return { ok: true, message: body.message, affected: body.affected ?? 0 }
   } catch (error) {
+    if (error instanceof ProvisiondNotConfigured) {
+      return { ok: false, error: 'As ações não estão configuradas neste painel.' }
+    }
     if (error instanceof DOMException && error.name === 'TimeoutError') {
       return { ok: false, error: 'O servidor não respondeu a tempo.' }
     }

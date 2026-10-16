@@ -27,6 +27,24 @@ func TestContractFixtures(t *testing.T) {
 	t.Run("ticket", func(t *testing.T) {
 		contracttest.AssertRoundTrip[auth.Ticket](t, "ticket.json")
 	})
+	t.Run("panel invites", func(t *testing.T) {
+		contracttest.AssertRoundTrip[invitesResponse](t, "panel-invites.json")
+	})
+	t.Run("panel devices", func(t *testing.T) {
+		contracttest.AssertRoundTrip[devicesResponse](t, "panel-devices.json")
+	})
+	t.Run("panel usage", func(t *testing.T) {
+		contracttest.AssertRoundTrip[usageResponse](t, "panel-usage.json")
+	})
+	t.Run("panel create invite", func(t *testing.T) {
+		contracttest.AssertRoundTrip[createInviteRequest](t, "panel-create-invite.json")
+	})
+	t.Run("panel max leases", func(t *testing.T) {
+		contracttest.AssertRoundTrip[maxLeasesRequest](t, "panel-max-leases.json")
+	})
+	t.Run("panel audit", func(t *testing.T) {
+		contracttest.AssertRoundTrip[auditRequest](t, "panel-audit.json")
+	})
 
 	t.Run("ticket validates", func(t *testing.T) {
 		const secret = "contract-secret"

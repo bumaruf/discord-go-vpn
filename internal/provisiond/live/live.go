@@ -1,5 +1,5 @@
 // Package live streams the collector's snapshots to the panel's browser over SSE, straight
-// from memory and without going through Vercel or the database. The route is public, so it
+// from memory and without going through the panel's server or the database. The route is public, so it
 // takes a signed, short-lived, read-only ticket.
 package live
 

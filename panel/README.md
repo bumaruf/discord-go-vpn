@@ -1,7 +1,8 @@
 # Painel
 
 Interface web de administração da VPN: gerar convites, ver quem está conectado,
-desconectar máquinas e revogar acessos. **Next.js na Vercel, MongoDB no Atlas.**
+desconectar máquinas e revogar acessos. **Next.js num Cloudflare Worker (OpenNext),
+MongoDB no Atlas.**
 
 - Arquitetura do projeto inteiro, com diagrama: [`../README.md`](../README.md#arquitetura)
 - O lado do servidor (Caddy, secrets, rotas): [`../server/README.md`](../server/README.md)
@@ -12,7 +13,7 @@ desconectar máquinas e revogar acessos. **Next.js na Vercel, MongoDB no Atlas.*
 - [Como as peças se falam](#como-as-peças-se-falam)
 - [Rodando localmente](#rodando-localmente)
 - [Variáveis de ambiente](#variáveis-de-ambiente)
-- [Publicando na Vercel](#publicando-na-vercel)
+- [Publicando na Cloudflare](#publicando-na-cloudflare)
 - [Estrutura](#estrutura)
 - [O que sustenta o desenho](#o-que-sustenta-o-desenho)
 
@@ -49,31 +50,41 @@ lista de quem está usando se agrupa por convite.
 ```mermaid
 flowchart LR
     B["Navegador do admin"]
-    N["Next.js (Vercel)"]
+    N["Next.js (Cloudflare Worker)"]
     A[("MongoDB Atlas")]
     P["provisiond<br/>(atrás do Caddy)"]
 
     B -- "HTTPS: telas, login" --> N
-    N -- "convites, dispositivos,<br/>histórico" --> A
+    N -- "convites, dispositivos, histórico<br/>e ações, com VPN_PANEL_SECRET" --> P
     N -- "tíquete de 5 min" --> B
     B -- "SSE, 1 evento/s,<br/>com o tíquete" --> P
-    N -- "ações com<br/>VPN_PANEL_SECRET" --> P
-    P -- "métricas e sessões" --> A
+    P -- "o único pool<br/>de conexões" --> A
 ```
+
+**O painel não conecta no banco.** Tudo o que ele lê ou grava no Atlas passa
+pelas rotas `/admin/*` do `provisiond`
+([`../server/README.md`](../server/README.md#rotas-do-provisiond)), que mantém
+o único pool de conexões, perto do banco. Um Worker não guarda conexões entre
+requests: abrir uma a cada página custaria o handshake TLS + autenticação do
+Atlas toda vez, e um Durable Object não roda na América do Sul, longe do
+cluster em São Paulo. Cada página faz uma chamada só, e o consumo diário tem
+cache de 30 s no `provisiond`.
 
 **O banco não fica no caminho do tempo real.** O `provisiond` transmite direto
 para o navegador; o Atlas guarda o que precisa sobreviver a um restart.
 
-Quando o stream cai, a tela **não finge estar ao vivo**:
-
-- após 3 falhas seguidas, os números passam a vir de `/api/live`, que lê o
-  banco, enquanto o stream tenta voltar (espera de até 10 s);
-- o cabeçalho troca "ao vivo" por "sem conexão ao vivo";
-- o gráfico de throughput mostra "indisponível" em vez de uma curva inventada.
+Quando o stream cai, a tela **não finge estar ao vivo**: depois de 3 falhas
+seguidas o cabeçalho troca "ao vivo" por "sem conexão ao vivo", a tela mantém
+o último retrato e o gráfico de throughput mostra "indisponível", enquanto o
+stream tenta voltar (espera de até 10 s). Não há fallback pelo banco: os dados
+dele também vêm do `provisiond`, que é quem estaria fora.
 
 ## Rodando localmente
 
-Precisa de um MongoDB. Para desenvolver, um container serve:
+Os dados vêm de um `provisiond` (`PROVISIOND_URL` + `VPN_PANEL_SECRET`): o de
+produção, ou um local apontado para um Mongo de desenvolvimento. Os scripts
+(`setup`, `merge-devices`) falam com o banco direto, por `MONGODB_URI`; para
+desenvolver, um container serve:
 
 ```sh
 docker run -d --name mongo-painel -p 27017:27017 mongo:8
@@ -107,26 +118,38 @@ Antes de abrir um PR:
 
 ```sh
 npm run lint                   # ESLint, falha com qualquer aviso
-npm run typecheck              # tsc --noEmit
+npm run typecheck              # tsc --noEmit, depois de gerar os tipos da Cloudflare (cf-typegen)
 npm run format:check           # Prettier (npm run format corrige)
 npm test                       # Vitest; os testes ficam ao lado do arquivo, em *.test.ts
 npm run build
 ```
 
+Para rodar no runtime da Cloudflare (workerd) em vez do Node, com as variáveis
+num `.dev.vars` (mesmo formato do `.env.local`, ignorado pelo git):
+
+```sh
+npm run preview                # build do OpenNext + wrangler dev em http://localhost:8787
+```
+
 Três armadilhas que custam uma tarde:
 
 - **O login não passa pelo banco.** A conta de admin é fixa e vem do ambiente
-  (`ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`). Com o Atlas fora do ar você ainda
-  entra e ainda vê o stream ao vivo — só o histórico fica indisponível.
-  As tentativas erradas, sim, são contadas no banco: 10 falhas do mesmo IP
-  bloqueiam o login dele por 15 min (coleção `login_attempts`, com o índice TTL
-  do `npm run setup`). Com o banco fora, a contagem para e o login segue livre.
+  (`ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`). Com o Atlas ou o `provisiond`
+  fora do ar você ainda entra; só os dados ficam indisponíveis.
+  As tentativas erradas são contadas no Workers KV `LOGIN_ATTEMPTS`: 10 falhas
+  do mesmo IP bloqueiam o login dele por 15 min. Com o KV fora, a contagem para
+  e o login segue livre.
 - **O hash sai em base64 de propósito.** O Next expande `$VAR` dentro de
   arquivos `.env`, e um hash argon2 é cheio de `$`. Colado cru, ele chega
   mutilado e o sintoma é só "senha incorreta" — e apenas na sua máquina, porque
-  na Vercel o valor é injetado direto.
-- **`AUTH_TRUST_HOST=true` é obrigatório fora da Vercel.** Sem ele toda rota de
-  autenticação responde 500, com um erro que não diz o que fazer.
+  na Cloudflare o valor é injetado direto.
+- **`AUTH_TRUST_HOST=true` é obrigatório**, também na Cloudflare (o Auth.js só
+  detecta a Vercel sozinho). Sem ele toda rota de autenticação responde 500, com
+  um erro que não diz o que fazer.
+- **No `npm run preview`, o `/dashboard` volta para o login** mesmo logado:
+  sem `X-Forwarded-Proto`, o proxy do Auth.js supõe `https` e procura o cookie
+  `__Secure-…`, que um login em `http` não grava. Em produção a Cloudflare manda
+  o header; localmente, teste com `curl -H "X-Forwarded-Proto: http"`.
 
 ## Variáveis de ambiente
 
@@ -138,9 +161,9 @@ O [`.env.example`](.env.example) tem os comentários completos.
 | `ADMIN_PASSWORD_HASH` | sim* | hash da senha (`npm run hash-password`) |
 | `ADMIN_PASSWORD` | não | alternativa em texto claro — evite |
 | `AUTH_SECRET` | sim | assina a sessão (`openssl rand -base64 32`) |
-| `AUTH_TRUST_HOST` | fora da Vercel | `true` |
+| `AUTH_TRUST_HOST` | sim | `true` |
 | `NEXTAUTH_URL` | sim | URL pública do painel |
-| `MONGODB_URI`, `MONGODB_DB` | sim | o banco (padrão do nome: `vpn`) |
+| `MONGODB_URI`, `MONGODB_DB` | só nos scripts | o banco de `npm run setup` e `merge-devices` (padrão do nome: `vpn`); o Worker não usa |
 | `PROVISIOND_URL` | sim | `https://` + o `PANEL_DOMAIN` do servidor |
 | `VPN_PANEL_SECRET` | sim | autoriza as ações — **mesmo valor** do servidor |
 | `VPN_LIVE_SECRET` | sim | assina os tíquetes do stream — **mesmo valor** do servidor |
@@ -157,26 +180,56 @@ Uma variável vazia ou só com espaços conta como ausente e cai no padrão.
 Sem as variáveis, o app **builda e não funciona** — a falha só aparece em
 runtime.
 
-## Publicando na Vercel
+## Publicando na Cloudflare
 
-Em produção, o projeto é o **`vpn-painel`** (time `bumaruf-projects`), ligado a
-este repositório com **Root Directory `panel`** e branch de produção `main`.
-O `ignoreCommand` do [`vercel.json`](vercel.json) pula o build quando nada em
-`panel/` mudou desde o último deploy bem-sucedido da branch; sem esse deploy de
-referência (primeiro push da branch, histórico raso), o build roda.
+Em produção, o painel é o Worker **`discord-go-vpn-panel`** da conta pessoal
+`bumaruf`, construído pelo [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare)
+e configurado em [`wrangler.jsonc`](wrangler.jsonc). Precisa do **Workers Paid**:
+o argon2 do login gasta ~150 ms de CPU, e o plano free para em 10 ms.
 
-Para montar um deploy novo:
+A CI publica sozinha ([`deploy-panel.yml`](../.github/workflows/deploy-panel.yml)),
+sempre depois do job `Panel` passar e só quando `panel/` mudou:
 
-1. **Root Directory `panel`** nas configurações do projeto.
-2. **As variáveis de ambiente** da tabela acima.
-3. **Um domínio próprio.** Com *Vercel Authentication* ligada, o domínio
-   `*.vercel.app` pede login de uma conta do time; o domínio próprio abre
-   normalmente e as URLs de preview seguem protegidas.
-4. **`0.0.0.0/0` no Network Access do Atlas.** A Vercel não tem IP de saída
-   fixo no plano hobby — a senha do usuário do banco passa a ser a única
-   barreira. Use um usuário do banco só para o painel, separado do servidor.
-5. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
+- **Pull request:** um Workers Preview `pr-<n>`, com a URL comentada no PR.
+  Fechar o PR apaga o Preview. Previews são **públicos** (o login do painel
+  continua valendo); para fechá-los, ponha o Cloudflare Access na frente.
+- **Push na `main`:** deploy de produção.
+
+### Montando do zero
+
+1. **Token da API** (dash.cloudflare.com → *My Profile* → *API Tokens*), com o
+   template *Edit Cloudflare Workers*: a conta inteira (inclui *Workers KV
+   Storage: Edit*, que o binding `LOGIN_ATTEMPTS` exige) e, se for usar domínio
+   próprio, *Workers Routes: Edit* na zona. Sem filtro de IP (os runners do
+   GitHub mudam de IP). O de produção se chama
+   `github-actions-discord-go-vpn-panel`.
+2. **O namespace KV** `LOGIN_ATTEMPTS`: `npx wrangler kv namespace create
+   LOGIN_ATTEMPTS`, com o id em `wrangler.jsonc` (produção e `previews`).
+3. **Secrets do repositório:** `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`.
+   **Variáveis do repositório** (*Settings → Secrets and variables → Variables*):
+   `NEXT_PUBLIC_SERVER_NAME` e `NEXT_PUBLIC_WG_PORT`, se usadas. O build embute
+   as `NEXT_PUBLIC_*` no JavaScript do navegador, então elas vêm do build, não
+   do Worker.
+4. **Primeiro deploy**, que cria o Worker (os Previews da CI falham até ele
+   existir). Sem `wrangler login`: o wrangler lê `CLOUDFLARE_ACCOUNT_ID` e
+   `CLOUDFLARE_API_TOKEN` do `.env.local` do painel e os prefere ao login
+   OAuth. Confira a conta com `npx wrangler whoami`, rode `npm run deploy` e
+   tire as duas linhas do arquivo.
+5. **Secrets do Worker**, as variáveis da tabela acima sem as `NEXT_PUBLIC_*` e
+   sem `MONGODB_*`, que o Worker não usa: `npx wrangler secret bulk arquivo.json`
+   (ou `secret put NOME`, num terminal interativo: pelo `!` do Claude Code o
+   wrangler lê o valor vazio e grava o secret em branco) para produção, e
+   `npx wrangler preview base-config secret put NOME` para os Previews, que
+   não herdam os de produção. `NEXTAUTH_URL` é a URL pública do painel.
+6. **Domínio próprio:** com a zona ativa na conta, descomente `routes` no
+   `wrangler.jsonc` (`custom_domain: true`). O deploy da CI troca os registros
+   DNS conflitantes pelo Worker; não apague os antigos antes.
+7. **No servidor:** `PANEL_ORIGIN` com a URL deste painel (CORS do stream) e as
    duas secrets com os mesmos valores. Veja [`../server/README.md`](../server/README.md#painel-perfil-panel).
+
+Enquanto a Vercel ainda servir o domínio, o [`vercel.json`](vercel.json)
+continua valendo: ele pula o build da Vercel quando nada em `panel/` mudou. Some
+junto com o projeto `vpn-painel`, depois do corte do domínio.
 
 ## Estrutura
 
@@ -192,7 +245,6 @@ app/
     invites/              gerar, copiar, revogar, reativar e excluir
   api/auth/               rotas do Auth.js
   api/ticket/             emite o tíquete curto do stream
-  api/live/               o que o banco sabe, quando o stream não está de pé
   api/usage/              consumo diário de uma máquina
 components/
   live-provider.tsx       provider do stream, compartilhado por cabeçalho e telas
@@ -208,12 +260,14 @@ lib/
   action-result.ts        o tipo de retorno das Server Actions
   toast-result.ts         mostra o resultado de uma Server Action num toast
   utils.ts                `cn`, que junta classes do Tailwind (usado pelos componentes do shadcn)
-  mongo-names.ts          nomes de coleção, campo e valor gravado no Mongo, num lugar só
-  mongodb.ts              conexão com cache global (obrigatório em serverless)
-  invites.ts, devices.ts, repositórios: páginas, rotas e ações leem e gravam o Mongo
-  sessions.ts, samples.ts só por eles
+  mongo-names.ts          nomes de coleção, campo e valor gravado no Mongo, usados pelos scripts
+  documents.ts            os documentos gravados, como os scripts os leem
+  password.ts             argon2id em JS puro (o Worker não carrega módulo nativo)
+  invites.ts, devices.ts  repositórios: páginas, rotas e ações leem e gravam os dados só
+                          por eles, que chamam as rotas de dados do provisiond
   audit.ts                grava a auditoria das ações
-  provisiond.ts           o único lugar que conhece a secret de escrita
+  login-attempts.ts       conta as falhas de login por IP no Workers KV
+  provisiond.ts           o único lugar que conhece a secret do painel e fala com o provisiond
   provisiond-url.ts       monta as URLs do provisiond a partir de `PROVISIOND_URL`
   ticket.ts               assina o tíquete do stream (o Go confere)
   token.ts                gera o código do convite e o hash que o provisiond reconhece
@@ -223,7 +277,6 @@ lib/
   usage-days.ts           `USAGE_DAYS`, a janela do gráfico diário, importável do navegador
   live-snapshot.ts        formato do stream
   live-stream.ts          lê os eventos do stream
-  live-fallback.ts        monta o peer do fallback a partir de uma sessão do banco
   indexes.ts              coleções e índices, usados pelo `npm run setup`
 scripts/
   hash-password.ts        `npm run hash-password`
@@ -231,6 +284,8 @@ scripts/
   merge-devices.ts        `npm run merge-devices`
 auth.ts, auth.config.ts   Auth.js (Credentials + sessão JWT; a duração vem de `lib/session-max-age.ts`)
 proxy.ts                  protege a navegação de /dashboard
+wrangler.jsonc            o Worker e seus bindings
+open-next.config.ts       cache do OpenNext (páginas estáticas dos assets, sem R2/KV)
 ```
 
 ## O que sustenta o desenho
@@ -240,7 +295,7 @@ que vai dentro dele — quem ler o banco não entra no túnel. Perder o token cu
 gerar outro convite.
 
 **Nem a secret de escrita nem a senha do admin chegam ao navegador.**
-`lib/provisiond.ts`, `lib/admin.ts` e `lib/mongodb.ts` começam com
+`lib/provisiond.ts` e `lib/admin.ts` começam com
 `import 'server-only'`: se um componente de cliente os importar por engano, o
 build quebra.
 

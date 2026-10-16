@@ -7,7 +7,8 @@ import { readLiveStream } from '@/lib/live-stream'
 /** One minute of one-second samples. */
 export const WINDOW_SIZE = 60
 
-const FAILURES_BEFORE_FALLBACK = 3
+/** Failures before the header says the live view is down instead of reconnecting. */
+const FAILURES_BEFORE_OFFLINE = 3
 
 export interface ThroughputPoint {
   down: number
@@ -21,9 +22,8 @@ export interface LiveState {
 }
 
 /**
- * Streams snapshots straight from provisiond, without going through Vercel or the database. While
- * the stream is down it keeps retrying with backoff and, after repeated failures, reads the
- * database fallback.
+ * Streams snapshots straight from provisiond, without going through the panel's server or the
+ * database. While the stream is down it keeps retrying with backoff, showing the last snapshot.
  */
 export function useLive(initial?: LiveSnapshot): LiveState {
   const [snapshot, setSnapshot] = useState<LiveSnapshot>(initial ?? EMPTY_SNAPSHOT)
@@ -31,7 +31,7 @@ export function useLive(initial?: LiveSnapshot): LiveState {
   const history = useRef<ThroughputPoint[]>([])
 
   useEffect(() => {
-    // One controller ends the stream, the fallback fetch and the backoff wait on unmount.
+    // One controller ends the stream and the backoff wait on unmount.
     const controller = new AbortController()
     let failures = 0
 
@@ -70,17 +70,6 @@ export function useLive(initial?: LiveSnapshot): LiveState {
       // provisiond ends the stream periodically to force a ticket renewal; getting here is normal.
     }
 
-    async function fetchFromDatabase() {
-      try {
-        const r = await fetch('/api/live', { signal: controller.signal })
-        if (!r.ok) return
-        record((await r.json()) as LiveSnapshot)
-        setSource('database')
-      } catch {
-        // Keeps the last snapshot on screen.
-      }
-    }
-
     async function loop() {
       while (!controller.signal.aborted) {
         try {
@@ -88,12 +77,7 @@ export function useLive(initial?: LiveSnapshot): LiveState {
         } catch (error) {
           if (controller.signal.aborted) return
           failures++
-          if (failures >= FAILURES_BEFORE_FALLBACK) {
-            setSource('database')
-            await fetchFromDatabase()
-          } else {
-            setSource('connecting')
-          }
+          setSource(failures >= FAILURES_BEFORE_OFFLINE ? 'offline' : 'connecting')
           console.debug('live stream unavailable', error)
         }
 

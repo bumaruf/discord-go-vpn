@@ -29,7 +29,7 @@ uma banda só seus.
 ```mermaid
 flowchart TB
     CLI["discord-go-vpn<br/>(clientes)"]
-    ADM["Painel na Vercel<br/>e navegador do admin"]
+    ADM["Painel na Cloudflare<br/>e navegador do admin"]
     DB[("MongoDB Atlas")]
 
     subgraph VPS["VPS · docker compose"]
@@ -178,7 +178,7 @@ aparecer, o problema é uma das [duas barreiras da Oracle](#4-libere-as-portas).
 
 ## Painel (perfil `panel`)
 
-O painel na Vercel e o navegador do admin precisam de um certificado que uma
+O painel na Cloudflare e o navegador do admin precisam de um certificado que uma
 autoridade conheça, e o do `provisiond` é [autoassinado](#por-que-é-assim). O
 Caddy resolve isso sem tocar no certificado que os clientes fixam.
 
@@ -201,9 +201,9 @@ VPN_LIVE_SECRET=...                            # openssl rand -base64 32
 sudo docker compose --profile panel up -d
 ```
 
-**4. Leve os valores para a Vercel.** Os dois lados precisam do **mesmo valor**:
+**4. Leve os valores para os secrets do Worker do painel.** Os dois lados precisam do **mesmo valor**:
 
-| No painel (Vercel) | Vem de |
+| No painel (Cloudflare) | Vem de |
 |---|---|
 | `PROVISIOND_URL` | `https://` + `PANEL_DOMAIN` |
 | `PROVISIOND_LEASE_URL` | `https://SEU_IP:51821`, o endereço que vai dentro do token de conexão |
@@ -360,6 +360,16 @@ HTTPS na porta 51821. Pelo Caddy, só as `/admin/*`.
 | `POST` | `/admin/leases/{id}/disconnect` | `Bearer VPN_PANEL_SECRET` | derruba um acesso |
 | `POST` | `/admin/invites/{id}/revoke` | `Bearer VPN_PANEL_SECRET` | revoga o convite e derruba suas máquinas |
 | `POST` | `/admin/invites/{id}/reactivate` | `Bearer VPN_PANEL_SECRET` | reativa o convite |
+| `GET` | `/admin/invites` | `Bearer VPN_PANEL_SECRET` | os 100 convites mais novos, com a contagem de dispositivos |
+| `POST` | `/admin/invites` | `Bearer VPN_PANEL_SECRET` | grava um convite ativo; o painel gera o código e manda só o hash |
+| `DELETE` | `/admin/invites/{id}` | `Bearer VPN_PANEL_SECRET` | apaga o convite (o painel revoga antes); `404` se não existe |
+| `PUT` | `/admin/invites/{id}/max-leases` | `Bearer VPN_PANEL_SECRET` | troca o limite de acessos (`null` tira) e já vale no próximo `/lease` |
+| `GET` | `/admin/devices` | `Bearer VPN_PANEL_SECRET` | as 500 máquinas vistas por último e os nomes dos convites |
+| `GET` | `/admin/usage?from=AAAA-MM-DD[&device=id]` | `Bearer VPN_PANEL_SECRET` | consumo somado por dia, do servidor ou de uma máquina; cache de 30 s |
+| `POST` | `/admin/audit` | `Bearer VPN_PANEL_SECRET` | grava uma linha da auditoria das ações do painel |
+
+O painel não tem conexão própria com o Atlas: tudo o que ele lê ou grava no
+banco passa por essas rotas. Sem banco, elas respondem `503`.
 
 As rotas de administração respondem **404** a qualquer método quando a secret
 delas não está configurada.
