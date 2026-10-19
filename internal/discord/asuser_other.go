@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
+	"strings"
 )
 
 // RestartAsUser reopens Discord on the normal network as the user who invoked
@@ -69,13 +71,61 @@ func graphicalEnv(username string) []string {
 	if os.Getenv("DISPLAY") == "" {
 		vars = append(vars, "DISPLAY=:0")
 	}
-	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
 		if uid := os.Getenv("SUDO_UID"); uid != "" {
-			vars = append(vars, "XDG_RUNTIME_DIR=/run/user/"+uid)
+			runtimeDir = "/run/user/" + uid
+			vars = append(vars, "XDG_RUNTIME_DIR="+runtimeDir)
+		}
+	}
+
+	return append(vars, sessionFromRuntimeDir(runtimeDir)...)
+}
+
+// sessionFromRuntimeDir recovers from the user's runtime dir what sudo cleared
+// of a Wayland session. Without it Discord starts as plain X11 and screen
+// sharing on Hyprland shows a black screen, since only the PipeWire capturer
+// behind the desktop portal can see Wayland windows.
+func sessionFromRuntimeDir(runtimeDir string) []string {
+	if runtimeDir == "" {
+		return nil
+	}
+
+	var vars []string
+
+	display := os.Getenv("WAYLAND_DISPLAY")
+	if display == "" {
+		display = waylandSocket(runtimeDir)
+		if display != "" {
+			vars = append(vars, "WAYLAND_DISPLAY="+display)
+		}
+	}
+	if os.Getenv("XDG_SESSION_TYPE") == "" && display != "" {
+		vars = append(vars, "XDG_SESSION_TYPE=wayland")
+	}
+
+	// The portal is reached over the session bus.
+	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+		bus := filepath.Join(runtimeDir, "bus")
+		if _, err := os.Stat(bus); err == nil {
+			vars = append(vars, "DBUS_SESSION_BUS_ADDRESS=unix:path="+bus)
 		}
 	}
 
 	return vars
+}
+
+// waylandSocket is the name of the first compositor socket in runtimeDir, or
+// "" when there is none.
+func waylandSocket(runtimeDir string) string {
+	matches, _ := filepath.Glob(filepath.Join(runtimeDir, "wayland-*"))
+	for _, path := range matches {
+		if strings.HasSuffix(path, ".lock") {
+			continue
+		}
+		return filepath.Base(path)
+	}
+	return ""
 }
 
 func homeOf(username string) string {
