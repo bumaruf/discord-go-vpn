@@ -72,3 +72,45 @@ func TestRestartAsUserRunsDiscordDirectlyWithoutSudo(t *testing.T) {
 		t.Errorf("Discord was relaunched as %q, want it run directly", got)
 	}
 }
+
+func TestGraphicalEnvRecoversTheWaylandSessionSudoCleared(t *testing.T) {
+	runtimeDir := t.TempDir()
+	for _, name := range []string{"wayland-1", "wayland-1.lock", "bus"} {
+		if err := os.WriteFile(filepath.Join(runtimeDir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	for _, name := range []string{"WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS"} {
+		t.Setenv(name, "")
+	}
+
+	got := strings.Join(graphicalEnv("alice"), " ")
+	for _, want := range []string{
+		"WAYLAND_DISPLAY=wayland-1",
+		"XDG_SESSION_TYPE=wayland",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=" + filepath.Join(runtimeDir, "bus"),
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("graphicalEnv = %q, missing %s", got, want)
+		}
+	}
+}
+
+func TestGraphicalEnvKeepsTheSessionItWasGiven(t *testing.T) {
+	runtimeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(runtimeDir, "wayland-0"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	t.Setenv("WAYLAND_DISPLAY", "wayland-1")
+	t.Setenv("XDG_SESSION_TYPE", "x11")
+
+	got := strings.Join(graphicalEnv("alice"), " ")
+	if strings.Count(got, "WAYLAND_DISPLAY=") != 1 || !strings.Contains(got, "WAYLAND_DISPLAY=wayland-1") {
+		t.Errorf("graphicalEnv = %q, want only the WAYLAND_DISPLAY it was given", got)
+	}
+	if strings.Count(got, "XDG_SESSION_TYPE=") != 1 || !strings.Contains(got, "XDG_SESSION_TYPE=x11") {
+		t.Errorf("graphicalEnv = %q, want only the XDG_SESSION_TYPE it was given", got)
+	}
+}
