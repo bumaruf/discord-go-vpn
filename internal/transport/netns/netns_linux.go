@@ -161,6 +161,7 @@ func (n *Namespace) Open(discordPath string) (string, error) {
 	discord.Stop()
 
 	cmd := n.Command(exe)
+	discord.Detach(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
