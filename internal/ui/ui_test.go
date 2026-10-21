@@ -302,13 +302,19 @@ func TestShortWindowCutsLeastImportantFirst(t *testing.T) {
 	}
 }
 
-func TestScreenRespectsMaxWidth(t *testing.T) {
+func TestScreenFillsAWideWindow(t *testing.T) {
 	m := metered(dashboard(healthy()))
-	m.width = 240
-	for _, line := range strings.Split(screenOf(m), "\n") {
-		if n := lipgloss.Width(line); n > maxWidth {
-			t.Fatalf("a 240-column window drew a %d-column line, over the cap of %d", n, maxWidth)
-		}
+	m.width, m.height = 240, 50
+	screen := screenOf(m)
+	assertFits(t, screen, m.width)
+
+	// One column of margin on each side; the cards and the chart span the rest.
+	widest := 0
+	for _, line := range strings.Split(screen, "\n") {
+		widest = max(widest, lipgloss.Width(strings.TrimRight(line, " ")))
+	}
+	if widest != m.width-1 {
+		t.Fatalf("in a %d-column window the widest line has %d columns, want %d", m.width, widest, m.width-1)
 	}
 }
 
