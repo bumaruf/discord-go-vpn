@@ -46,6 +46,32 @@ func readRecord(t *testing.T, record string) string {
 	return ""
 }
 
+func TestStopSendsOnlySIGKILL(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "record")
+	if err := os.WriteFile(filepath.Join(dir, "pkill"), []byte("#!/bin/sh\necho \"$*\" >> '"+record+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pgrep"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	Stop()
+
+	data, _ := os.ReadFile(record)
+	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(calls) != len(unixNames) {
+		t.Fatalf("pkill ran %d times, want once per name: %q", len(calls), calls)
+	}
+	for _, call := range calls {
+		// SIGTERM crashes Discord with a core dump the desktop reports.
+		if !strings.HasPrefix(call, "-9 -x ") {
+			t.Errorf("pkill %s: Discord must be stopped with SIGKILL only", call)
+		}
+	}
+}
+
 func TestRestartAsUserRunsDiscordAsTheSudoUser(t *testing.T) {
 	exe, record := fakeCommands(t)
 	t.Setenv("SUDO_USER", "alice")
