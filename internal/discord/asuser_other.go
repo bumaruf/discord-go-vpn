@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // RestartAsUser reopens Discord on the normal network as the user who invoked
@@ -23,6 +24,7 @@ func RestartAsUser(explicit string) (string, error) {
 
 	argv := AsInvokingUser(exe)
 	cmd := exec.Command(argv[0], argv[1:]...)
+	Detach(cmd)
 
 	// Discord's output would garble the screen.
 	cmd.Stdout = nil
@@ -36,6 +38,13 @@ func RestartAsUser(explicit string) (string, error) {
 	go func() { _ = cmd.Wait() }()
 
 	return exe, nil
+}
+
+// Detach starts Discord in a session of its own. In this program's session,
+// closing the terminal would send it SIGHUP, which, like SIGTERM, makes it die
+// of SIGTRAP and reach the desktop as a crash.
+func Detach(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
 // AsInvokingUser prefixes argv to run it as SUDO_USER, when set. As root,
