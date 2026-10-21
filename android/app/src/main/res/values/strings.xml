@@ -34,6 +34,7 @@
     <string name="attempt_since">tentativa %1$d · há %2$s</string>
     <string name="fallback_detail">Discord na rede normal, tentando voltar</string>
     <string name="only_discord">Só o Discord passa pelo túnel. O resto do celular continua na rede normal.</string>
+    <string name="close_discord_first">Se o Discord já estava aberto antes de conectar, feche-o pela lista de apps recentes e abra de novo. O Android não deixa este app fechá-lo, e o que ele já tinha conectado fica fora do túnel.</string>
 
     <string name="vpn_denied">Sem a permissão de VPN do Android não dá para pôr o Discord no túnel.</string>
     <string name="discord_missing">o Discord não está instalado neste celular</string>

@@ -146,8 +146,8 @@ A fonte é a Geist, a mesma do painel, sob a SIL Open Font License
 - **Um Discord já aberto pode continuar fora do túnel.** No desktop o cliente
   fecha e reabre o Discord; no Android nenhum app pode fechar outro. As
   conexões que o Discord já tinha podem ficar na rede normal até ele
-  reconectar. Se isso acontecer, feche o Discord pela lista de apps recentes e
-  abra de novo.
+  reconectar. Por isso, com o túnel de pé, o app avisa para fechar o Discord
+  pela lista de apps recentes e abrir de novo.
 - **Durante a reconexão o Discord usa a rede normal.** Sem a interface da VPN,
   o Android manda o tráfego dele pela rede normal, como acontece no Windows
   enquanto o filtro do WireSock está fora do ar.
