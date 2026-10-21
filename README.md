@@ -273,7 +273,7 @@ Como instalar, usar e compilar: [`android/README.md`](android/README.md).
 
 ```sh
 make          # binário para este sistema
-make dist     # Linux e Windows amd64/arm64, com SHA256SUMS (VERSION=v2026.10.21 numa versão publicada)
+make dist     # Linux e Windows amd64/arm64, com SHA256SUMS (VERSION=v1.2.3 numa versão publicada)
 make test     # gofmt + go vet (Linux e Windows) + testes
 make lint     # golangci-lint (Linux e Windows), configurado em .golangci.yml
 make android  # APK do app Android em dist/ (precisa do Android SDK e do NDK)
@@ -349,12 +349,17 @@ a chave depois exige que todo mundo baixe à mão um binário com a chave nova.
 Depois, a cada versão, basta uma tag:
 
 ```sh
-git tag v2026.10.21 && git push origin v2026.10.21
+git tag v1.2.3 && git push origin v1.2.3
 ```
 
-A tag precisa ser semver sem zero à esquerda: `v2026.10.21` e `v2026.9.3`
-servem, `v2026.09.03` não. O cliente compara versões como semver, e o workflow
-recusa uma tag fora desse formato antes de compilar.
+A tag é uma versão semântica, `vMAJOR.MINOR.PATCH`, e nunca uma data: suba o
+PATCH numa correção, o MINOR numa funcionalidade nova e o MAJOR quando algo
+deixar de ser compatível (um token de conexão antigo parar de funcionar, por
+exemplo). O cliente compara versões como semver e só sobe, então uma tag como
+`v2026.10.21` ficaria acima de todas as `v1.x` seguintes e travaria o
+auto-update. O workflow recusa, antes de compilar, uma tag fora do formato, com
+zero à esquerda ou com cara de data. As tags `v2026.09.*` antigas são anteriores
+ao auto-update e não contam.
 
 O workflow `.github/workflows/release.yml` roda `make test`, compila com
 `make dist VERSION=<tag>`, assina com `make sign` e publica a release com os
