@@ -15,9 +15,6 @@ import (
 
 // Layout sizes, in terminal columns.
 const (
-	// maxWidth caps the screen, so a wide terminal does not strand values far
-	// from their labels.
-	maxWidth     = 110
 	defaultWidth = 84
 	// sideBySide is the narrowest screen that fits the two cards in one row.
 	sideBySide = 72
@@ -65,7 +62,7 @@ func (m Model) screenWidth() int {
 	if m.width <= 0 {
 		return defaultWidth
 	}
-	return min(m.width, maxWidth)
+	return m.width
 }
 
 // screen drops parts in cutOrder until the screen fits the window. It measures
