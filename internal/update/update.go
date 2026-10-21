@@ -20,7 +20,7 @@ import (
 var Version = "dev"
 
 // publicKey verifies update.json.sig. Empty disables updates: docs in README.md → Atualização automática.
-const publicKey = ""
+const publicKey = "UmfK2XPQGeVCI6k2aF9feMhN32NCnFQ4ogeQqtZ+xL4="
 
 const releasesURL = "https://github.com/bumaruf/discord-go-vpn/releases"
 
