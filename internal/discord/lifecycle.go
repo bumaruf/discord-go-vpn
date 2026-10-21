@@ -20,33 +20,25 @@ func WindowsProcessNames() []string {
 }
 
 const (
-	exitTimeout    = 8 * time.Second
-	sigtermTimeout = exitTimeout / 2
-	pollInterval   = 200 * time.Millisecond
+	exitTimeout  = 8 * time.Second
+	pollInterval = 200 * time.Millisecond
 
 	// lockReleaseDelay covers the single-instance lock outliving the process by
 	// a moment.
 	lockReleaseDelay = 400 * time.Millisecond
 )
 
-// Kill ends every Discord process, children included.
-func Kill() {
+// kill ends every Discord process at once, children included. On Linux it is
+// SIGKILL from the start: a logged-in Discord dies of SIGTRAP on SIGTERM, sent
+// to every process or to the main one alone, and the core dump reaches the
+// desktop as a crash; SIGKILL dumps nothing.
+func kill() {
 	if runtime.GOOS == "windows" {
 		for _, name := range windowsNames {
 			_ = exec.Command("taskkill", "/IM", name, "/T", "/F").Run()
 		}
 		return
 	}
-
-	// SIGTERM first, so the client can save its state.
-	for _, name := range unixNames {
-		_ = exec.Command("pkill", "-x", name).Run()
-	}
-
-	if waitForExit(sigtermTimeout) {
-		return
-	}
-
 	for _, name := range unixNames {
 		_ = exec.Command("pkill", "-9", "-x", name).Run()
 	}
@@ -83,6 +75,6 @@ func waitForExit(timeout time.Duration) bool {
 // Stop kills Discord and waits for it to exit, so the next instance does not
 // just focus the old one.
 func Stop() {
-	Kill()
+	kill()
 	waitForExit(exitTimeout)
 }
