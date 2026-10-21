@@ -20,9 +20,18 @@ import (
 // in the next attempt's status.
 type ApplyToken func(typed string) error
 
+// Tunnel is what the screen reads: the supervisor in this process, or the
+// Linux service's over its control socket.
+type Tunnel interface {
+	Updates() <-chan supervisor.Status
+	Status() supervisor.Status
+	Reading() supervisor.Reading
+	Reconnect()
+}
+
 // Session is what the screen draws once startup is through.
 type Session struct {
-	Sup     *supervisor.Supervisor
+	Tunnel  Tunnel
 	Profile string
 	// ApplyToken is nil when access comes from a .conf.
 	ApplyToken ApplyToken
@@ -44,6 +53,9 @@ type Options struct {
 	// Stop asks the tunnel to come down. The screen stays, with the mascot
 	// asleep, until the supervisor closes its updates.
 	Stop func()
+	// Detached is a screen on the service's tunnel: quitting closes only the
+	// screen, and the tunnel stays up.
+	Detached bool
 }
 
 type phase int
@@ -172,7 +184,7 @@ func (m Model) waitEvent() tea.Cmd {
 }
 
 // waitStatus blocks on the supervisor channel; each arrival schedules the next.
-func waitStatus(sup *supervisor.Supervisor) tea.Cmd {
+func waitStatus(sup Tunnel) tea.Cmd {
 	return func() tea.Msg {
 		s, ok := <-sup.Updates()
 		if !ok {
@@ -204,8 +216,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, frameTick()
 
 	case sampleMsg:
-		if m.sess.Sup != nil {
-			m.reading = m.sess.Sup.Reading()
+		if m.sess.Tunnel != nil {
+			m.reading = m.sess.Tunnel.Reading()
 			m.metered = m.metered || m.reading.Metered
 			m.hist.add(m.reading, time.Time(msg))
 		}
@@ -232,7 +244,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.status = supervisor.Status(msg)
 		m.followTunnel()
-		return m, waitStatus(m.sess.Sup)
+		return m, waitStatus(m.sess.Tunnel)
 
 	case hoverMsg:
 		if msg.in {
@@ -274,9 +286,9 @@ func (m Model) handOver(msg sessionMsg) (tea.Model, tea.Cmd) {
 		m.handoverAt = m.frame + celebration
 		return m, nil
 	}
-	m.status = m.sess.Sup.Status()
+	m.status = m.sess.Tunnel.Status()
 	m.followTunnel()
-	return m, waitStatus(m.sess.Sup)
+	return m, waitStatus(m.sess.Tunnel)
 }
 
 // followTunnel moves the checklist's last two steps with the status, and hands
@@ -349,7 +361,7 @@ func (m Model) press(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Only while the supervisor waits to retry, the same states in which
 		// the footer offers the key.
 		if m.retrying() {
-			m.sess.Sup.Reconnect()
+			m.sess.Tunnel.Reconnect()
 			m.notice = "tentando agora…"
 			m.noticeUntil = time.Now().Add(noticeDuration)
 		}
@@ -385,7 +397,7 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 	if m.opts.Stop != nil {
 		m.opts.Stop()
 	}
-	if m.sess.Sup == nil || m.stopping {
+	if m.sess.Tunnel == nil || m.stopping || m.opts.Detached {
 		return m, tea.Quit
 	}
 	m.stopping = true

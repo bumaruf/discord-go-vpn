@@ -362,6 +362,9 @@ func (m Model) footer(width int) []string {
 		hints = []keyHint{{"q", "sair"}}
 	default:
 		hints = []keyHint{{"q", "sair"}}
+		if m.opts.Detached {
+			hints = []keyHint{{"q", "fechar (o túnel continua)"}}
+		}
 		if m.retrying() {
 			hints = append(hints, keyHint{"r", "tentar agora"})
 		}

@@ -38,7 +38,8 @@ O texto que o usuário final lê continua em pt-BR (TUI, CLI, painel). O glossá
 | inativo | inactive | Dispositivo sem lease que não conecta há mais de 5 dias. A página "Quem está usando" o esconde até o admin pedir para ver. |
 | túnel | tunnel | O túnel WireGuard por onde passa o Discord, levantado pelo transporte do cliente. |
 | perfil | profile | Configuração WireGuard que o cliente usa: um `.conf` na pasta ou a que vem de um lease. |
-| bandeja | tray | Ícone do cliente na área de notificação do Windows. |
+| bandeja | tray | Ícone do cliente na área de notificação: no Windows junto do programa, no Linux um processo da sessão (`discord-go-vpn tray`) que controla o serviço. |
+| serviço | service | No Linux instalado, o processo root sob o systemd que segura o túnel e atende a bandeja e o painel pelo socket de controle. |
 | atualização automática | update | O cliente de Linux e Windows trocando o próprio executável pela versão mais nova das Releases do GitHub, ao abrir e antes de conectar. Pacote `internal/update`. |
 | manifesto de atualização | update manifest | O `update.json` de cada release: versão e SHA-256 de cada binário, assinado com ed25519 no `update.json.sig`. |
 | bloco rápido | tile | Botão do app Android nas configurações rápidas, que liga e desliga o túnel. |
