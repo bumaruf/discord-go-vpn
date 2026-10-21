@@ -6,19 +6,20 @@
 package trayapp
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	"fyne.io/systray"
-	"golang.org/x/sys/unix"
 
+	"github.com/bumaruf/discord-go-vpn/internal/app"
 	"github.com/bumaruf/discord-go-vpn/internal/control"
+	"github.com/bumaruf/discord-go-vpn/internal/platform/instance"
 	"github.com/bumaruf/discord-go-vpn/internal/statustext"
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
 	"github.com/bumaruf/discord-go-vpn/internal/ui"
@@ -52,33 +53,19 @@ type tray struct {
 // Run shows the icon until the person quits from its menu. Only one runs per
 // session.
 func Run() error {
-	unlock, err := singleInstance()
+	// Autostart and a click on the menu entry would otherwise put two icons up.
+	release, err := instance.Hold("tray")
+	if errors.Is(err, instance.ErrHeld) {
+		return errors.New("a bandeja já está aberta")
+	}
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer release()
 
 	t := &tray{}
 	systray.Run(t.ready, func() {})
 	return nil
-}
-
-// singleInstance holds a lock in the runtime dir, so autostart and a click on
-// the menu entry don't put two icons up.
-func singleInstance() (func(), error) {
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "discord-go-vpn-tray.lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("a bandeja já está aberta")
-	}
-	return func() { _ = f.Close() }, nil
 }
 
 func (t *tray) ready() {
@@ -278,8 +265,12 @@ var terminals = [][]string{
 	{"xterm", "-e"},
 }
 
-// openPanel opens the screen in a terminal; it follows the service's tunnel.
+// openPanel opens the screen in a terminal, unless one is already open; it
+// follows the service's tunnel.
 func openPanel() {
+	if instance.Held(app.PanelLock) {
+		return
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return
