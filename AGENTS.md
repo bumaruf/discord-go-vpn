@@ -37,7 +37,9 @@ The `Makefile` header lists its targets; the panel's are its `package.json` scri
 
 ## Client
 
-Flow: `main.go` → `update.Run` → without a `.conf`, `connectiontoken.Ensure` → `app.Run` → `supervisor.Run` → on each connection, `profile.Open` + `transport.New`. The lease that validated the connection token is handed to the supervisor's first connection; reconnections lease afresh.
+Flow: `main.go` → `app.Run` → `startup.Run` (`update.Install`, then the `.conf` or `connectiontoken.Ensure`) → `supervisor.Run` → on each connection, `profile.Open` + `transport.New`. The lease that validated the connection token is handed to the supervisor's first connection; reconnections lease afresh. Startup runs inside the screen, started from its `Init`, so a terminal that can't draw falls back to plain text before anything ran; `startup.Reporter` is implemented by both. A release `update.Install` wrote is relaunched only after the screen closes.
+
+- **`ui`** is Bubble Tea v2. It reads `Status` from `Updates()` and polls `Supervisor.Reading()` (traffic, RTT) once a second; only transports implementing `transport.Meter` (netns, vpnservice) report traffic, never WireSock.
 
 - **`supervisor`** owns the tunnel. The UI and the tray only read `Status` snapshots from `Updates()`, which drops frames instead of blocking. A dropped session is closed (transport, then lease) before the next attempt, because both transports tear down by fixed name; backoff 3s→30s; after 3 consecutive failures `StateFallback` hands Discord back to the normal network and keeps retrying. Every connection that comes up reopens Discord inside it; on exit Discord reopens outside. A lease gone for good (`profile.ErrLeaseLost`: a 410, or failed renewals spanning its TTL) ends the session like a drop.
 - **`transport`** is the `Transport` interface with its adapters (`netns_linux.go`, `wiresock_windows.go`); the implementations live in `transport/netns` and `transport/wiresock`. Transports never write to the terminal, which the TUI owns: `Start` reports through `transport.Reporter` into `Status.Progress` and `Status.Warning`.

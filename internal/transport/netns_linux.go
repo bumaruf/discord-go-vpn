@@ -36,6 +36,13 @@ func (n *nsTransport) Ready() error {
 	return nil
 }
 
+func (n *nsTransport) Traffic() (wg.Traffic, error) {
+	if n.ns == nil {
+		return wg.Traffic{}, errors.New("o namespace não chegou a subir")
+	}
+	return n.ns.Traffic()
+}
+
 func (n *nsTransport) Open(discordPath string) (string, error) { return n.ns.Open(discordPath) }
 
 func (n *nsTransport) Close() {

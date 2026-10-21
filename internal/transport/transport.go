@@ -23,6 +23,12 @@ type Transport interface {
 	Close()
 }
 
+// Meter is implemented by the transports that run WireGuard in this process;
+// WireSock runs it in another and reports no counters.
+type Meter interface {
+	Traffic() (wg.Traffic, error)
+}
+
 // Reporter receives what Start has to tell the person while it works.
 type Reporter interface {
 	// Progress is a step of a slow setup, such as installing WireSock.

@@ -151,15 +151,15 @@ convite.
 - **Linux:** `sudo ./discord-go-vpn`
 - **Windows:** duplo clique no `.exe` e aceite o aviso de administrador.
 
-Na primeira vez, o programa **pede o token no terminal**:
+Na primeira vez, o programa **pede o token** na própria tela de início:
 
 ```
-Cole o token de conexão que você recebeu (começa com dgv1_):
-> dgv1_eyJzZXJ2ZXIiOi…
+Cole o token de conexão que você recebeu
+› dgv1_eyJzZXJ2ZXIiOi…
 ```
 
-Colou, e pronto: nas próximas vezes o programa entra direto. No Windows, cole o
-token na janela que abre depois do aviso de administrador.
+Colou e deu Enter, e pronto: nas próximas vezes o programa entra direto. No
+Windows, cole o token na janela que abre depois do aviso de administrador.
 
 O token fica guardado no diretório de configuração de quem executa o programa:
 `%AppData%\discord-go-vpn\token` no Windows e `~/.config/discord-go-vpn/token`
@@ -212,10 +212,33 @@ uma linha por mudança de estado.
 
 ### Na tela
 
+Ao abrir, o Clyde (o bichinho do Discord) atravessa uma lista de etapas:
+**atualização**, **acesso** (token ou `.conf`), **túnel** e **Discord**. Cada
+uma mostra o que está fazendo; o download de uma versão nova ganha uma barra de
+progresso, que alguns terminais repetem na aba ou na barra de tarefas.
+
+Com o túnel de pé, a tela vira um painel:
+
+- **conexão:** endereço do servidor, IP no túnel, idade do último handshake e o
+  RTT até o servidor de acesso (medido a cada 5 s; não há RTT com um `.conf`);
+- **tráfego:** download e upload agora, o total da sessão e o pico da janela;
+- **gráfico:** download para cima e upload para baixo, cada metade com sua
+  escala, ou o RTT. Passe o mouse ou use as setas para ver um instante do
+  passado; a roda do mouse ou `z` troca a janela entre 1, 5 e 15 minutos.
+
+No Windows o WireSock não informa tráfego, então o painel mostra só o RTT.
+
 | Tecla | O que faz |
 |---|---|
-| `q` / `Esc` / `Ctrl+C` | sai, desfaz o túnel e devolve o Discord à rede normal |
+| `q` / `Ctrl+C` | sai: desfaz o túnel e devolve o Discord à rede normal, com a tela aberta até terminar (`q` de novo sai na hora) |
+| `Esc` | sai da inspeção do gráfico; sem inspeção, sai como `q` |
 | `r` | reconecta agora, sem esperar (só aparece quando há o que apressar) |
+| `Tab` | alterna o gráfico entre tráfego e RTT |
+| `←` `→` | percorre o gráfico; `End` volta para agora |
+| `z` | troca a janela do gráfico |
+
+Como a tela usa o mouse, selecionar texto pede `Shift` enquanto arrasta, na
+maioria dos terminais.
 
 ### Quando a conexão cai
 
@@ -425,7 +448,8 @@ internal/routing/      os modos de rota (netns, wiresock)
 internal/supervisor/   mantém o túnel de pé, reconecta e faz o fallback
 internal/statustext/   os nomes dos estados e os textos que a tela, a bandeja e o app Android mostram
 internal/transport/    põe o Discord no túnel: netns no Linux, WireSock no Windows, VpnService no Android
-internal/ui/           a interface de texto
+internal/startup/      o que vem antes do túnel: atualização e acesso, etapa por etapa
+internal/ui/           a interface de texto: início animado, painel e gráfico
 internal/update/       a atualização automática: confere o manifesto assinado, troca o executável e reabre
 internal/wg/           lê o .conf
 mobile/                a API Go que o gomobile empacota para o app Android

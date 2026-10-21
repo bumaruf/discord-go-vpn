@@ -142,6 +142,14 @@ func (n *Namespace) Command(exe string, args ...string) *exec.Cmd {
 
 func (n *Namespace) Name() string { return n.name }
 
+func (n *Namespace) Traffic() (wg.Traffic, error) {
+	uapi, err := n.dev.IpcGet()
+	if err != nil {
+		return wg.Traffic{}, err
+	}
+	return wg.ParseTraffic(uapi), nil
+}
+
 // Open restarts the client inside the namespace and fails if it exits within
 // startupGrace.
 func (n *Namespace) Open(discordPath string) (string, error) {

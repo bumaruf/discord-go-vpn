@@ -24,7 +24,7 @@ const publicKey = "UmfK2XPQGeVCI6k2aF9feMhN32NCnFQ4ogeQqtZ+xL4="
 
 const releasesURL = "https://github.com/bumaruf/discord-go-vpn/releases"
 
-// relaunchedEnv marks the process Run started, so a release whose binary still
+// relaunchedEnv marks the process Relaunch started, so a release whose binary still
 // reports the old version cannot loop.
 const relaunchedEnv = "VPN_UPDATE_RELAUNCHED"
 
@@ -49,14 +49,23 @@ type updater struct {
 	platform    string
 }
 
-// Run installs a newer release over the running executable and runs it in this
-// process's place. replaced reports that the executable changed: the caller must
-// then exit with code, even with an error, which means the relaunch failed.
-// Without a newer release, or in a dev build, it returns nothing to do.
-func Run(ctx context.Context, w io.Writer) (code int, replaced bool, err error) {
+// Progress receives the download of a newer release as it goes; total is the
+// size the signed manifest promises.
+type Progress func(version string, done, total int64)
+
+// Installed is a newer release already written over the running executable.
+type Installed struct {
+	Version string
+	exe     string
+}
+
+// Install writes a newer release over the running executable; the caller then
+// runs it with Relaunch. Without a newer release, in a dev build, or in the
+// process a relaunch started, it returns nil. progress may be nil.
+func Install(ctx context.Context, progress Progress) (*Installed, error) {
 	if os.Getenv(relaunchedEnv) != "" {
 		_ = os.Unsetenv(relaunchedEnv)
-		return 0, false, nil
+		return nil, nil
 	}
 	u := updater{
 		client:      http.DefaultClient,
@@ -66,38 +75,49 @@ func Run(ctx context.Context, w io.Writer) (code int, replaced bool, err error) 
 		platform:    Platform(runtime.GOOS, runtime.GOARCH),
 	}
 	if !u.enabled() {
-		return 0, false, nil
+		return nil, nil
 	}
 
 	exe, err := executable()
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	removeLeftovers(exe)
 
 	m, asset, err := u.check(ctx)
 	if errors.Is(err, errNoManifest) {
-		return 0, false, nil
+		return nil, nil
 	}
 	if err != nil || asset == nil {
-		return 0, false, err
+		return nil, err
 	}
-	fmt.Fprintf(w, "nova versão %s disponível (esta é a %s), baixando…\n", m.Version, u.version)
-	downloaded, err := u.download(ctx, m.Version, *asset, filepath.Dir(exe))
+	if progress != nil {
+		progress(m.Version, 0, asset.Size)
+	}
+	downloaded, err := u.download(ctx, m.Version, *asset, filepath.Dir(exe), progress)
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
 	if err := replace(exe, downloaded); err != nil {
 		_ = os.Remove(downloaded)
-		return 0, false, fmt.Errorf("não consegui substituir %s: %w", exe, err)
+		return nil, fmt.Errorf("não consegui substituir %s: %w", exe, err)
 	}
+	return &Installed{Version: m.Version, exe: exe}, nil
+}
 
-	fmt.Fprintf(w, "atualizado para %s, reiniciando…\n", m.Version)
-	code, err = relaunch(exe, append(os.Environ(), relaunchedEnv+"=1"))
+// Relaunch runs the installed release in this process's place and returns the
+// code to exit with; an error means the relaunch failed.
+func (i *Installed) Relaunch() (int, error) {
+	code, err := relaunch(i.exe, append(os.Environ(), relaunchedEnv+"=1"))
 	if err != nil {
-		return 1, true, fmt.Errorf("a versão %s foi instalada, mas não consegui reabrir o programa (abra de novo): %w", m.Version, err)
+		return 1, fmt.Errorf("a versão %s foi instalada, mas não consegui reabrir o programa (abra de novo): %w", i.Version, err)
 	}
-	return code, true, nil
+	return code, nil
+}
+
+// Enabled reports whether this build looks for updates at all.
+func Enabled() bool {
+	return updater{version: Version, publicKey: publicKey}.enabled()
 }
 
 func (u updater) enabled() bool {
@@ -172,7 +192,7 @@ func (u updater) get(ctx context.Context, url string) (*http.Response, error) {
 // download writes the asset into dir, beside the executable, so replacing it is
 // a rename on the same file system, and returns the file only if its size and
 // SHA-256 match the signed manifest.
-func (u updater) download(ctx context.Context, version string, asset Asset, dir string) (string, error) {
+func (u updater) download(ctx context.Context, version string, asset Asset, dir string, progress Progress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
@@ -187,7 +207,11 @@ func (u updater) download(ctx context.Context, version string, asset Asset, dir 
 		return "", fmt.Errorf("não consegui gravar a atualização em %s: %w", dir, err)
 	}
 	hash := sha256.New()
-	n, copyErr := io.Copy(io.MultiWriter(f, hash), io.LimitReader(resp.Body, asset.Size+1))
+	body := io.LimitReader(resp.Body, asset.Size+1)
+	if progress != nil {
+		body = &progressReader{r: body, report: func(done int64) { progress(version, done, asset.Size) }}
+	}
+	n, copyErr := io.Copy(io.MultiWriter(f, hash), body)
 	closeErr := f.Close()
 	err = errors.Join(copyErr, closeErr)
 	if err == nil && (n != asset.Size || hex.EncodeToString(hash.Sum(nil)) != asset.SHA256) {
@@ -219,4 +243,17 @@ func executable() (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(exe)
+}
+
+type progressReader struct {
+	r      io.Reader
+	done   int64
+	report func(done int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.done += int64(n)
+	p.report(p.done)
+	return n, err
 }

@@ -1,5 +1,5 @@
-// Package app wires the supervisor to the screen and the tray, and owns the
-// process lifetime.
+// Package app wires startup, the supervisor, the screen and the tray, and owns
+// the process lifetime.
 package app
 
 import (
@@ -11,33 +11,49 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/bumaruf/discord-go-vpn/internal/connectiontoken"
 	"github.com/bumaruf/discord-go-vpn/internal/errtext"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
+	"github.com/bumaruf/discord-go-vpn/internal/startup"
 	"github.com/bumaruf/discord-go-vpn/internal/statustext"
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
 	"github.com/bumaruf/discord-go-vpn/internal/ui"
+	"github.com/bumaruf/discord-go-vpn/internal/update"
 )
 
 // Options carries what the command line decided.
 type Options struct {
+	// ConfigPath is a .conf to use; empty leases with a connection token.
 	ConfigPath  string
 	DiscordPath string
 	Mode        routing.Mode
-	Provision   profile.Provisioning
-
-	// Source, when set, is a profile the caller already opened; Run owns it.
-	Source *profile.Source
+	TokenFlag   string
+	CheckUpdate bool
 
 	Out io.Writer
 	Err io.Writer
 	// In is where the plain mode reads a replacement token from.
 	In io.Reader
+}
+
+// run is what startup left running, for Run to take down.
+type run struct {
+	opts Options
+	ctx  context.Context
+
+	mu       sync.Mutex
+	booted   chan struct{} // closed when boot returns; nil until it starts
+	sup      *supervisor.Supervisor
+	done     chan struct{} // closed when the supervisor stops
+	stopTray func()
+	restart  *update.Installed
 }
 
 func Run(opts Options) int {
@@ -49,21 +65,6 @@ func Run(opts Options) int {
 	}
 	if opts.In == nil {
 		opts.In = os.Stdin
-	}
-
-	// Opening the profile up front fails early with a clear message and labels
-	// the screen; the supervisor's first connection reuses it.
-	source := opts.Source
-	if source == nil {
-		var err error
-		if source, err = profile.Open(opts.ConfigPath, opts.Provision); err != nil {
-			if errors.Is(err, profile.ErrNoProfile) {
-				fmt.Fprintln(opts.Err, profile.HelpText)
-			} else {
-				fmt.Fprintln(opts.Err, "erro:", errtext.Translate(err))
-			}
-			return 1
-		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,42 +80,158 @@ func Run(opts Options) int {
 		cancel()
 	}()
 
-	sup := supervisor.New(supervisor.Options{
-		ConfigPath:  opts.ConfigPath,
-		DiscordPath: opts.DiscordPath,
-		Mode:        opts.Mode,
-		Provision:   opts.Provision,
-		Source:      source,
-	})
-
-	hasTray := false
-	stopTray, trayErr := startTray(sup)
-	if stopTray != nil {
-		defer stopTray()
-		hasTray = true
-	}
-
-	done := make(chan struct{})
-	go func() {
-		sup.Run(ctx)
-		close(done)
-	}()
-
-	// A .conf takes no token, so there is nothing to replace.
-	var apply ui.ApplyToken
-	if opts.ConfigPath == "" && opts.Provision.Configured() {
-		apply = applyToken(sup)
-	}
-
-	if !runTUI(opts, sup, cancel, source.Origin, hasTray, trayErr, apply) {
-		runPlain(ctx, opts, sup.Updates(), source.Origin, trayErr, apply)
+	r := &run{opts: opts, ctx: ctx}
+	code := 0
+	if !r.screen(cancel) {
+		code = r.plain()
 	}
 
 	cancel()
-	<-done
+	r.wait()
+	if r.restart != nil {
+		code, err := r.restart.Relaunch()
+		if err != nil {
+			fmt.Fprintln(opts.Err, errtext.Translate(err))
+		}
+		return code
+	}
 	fmt.Fprintln(opts.Out, "encerrado.")
+	return code
+}
+
+// boot runs startup and starts the tunnel and the tray, reporting through r.
+func (r *run) boot(rep startup.Reporter) (ui.Session, error) {
+	r.mu.Lock()
+	r.booted = make(chan struct{})
+	r.mu.Unlock()
+	defer close(r.booted)
+
+	res, err := startup.Run(r.ctx, startup.Options{
+		ConfigPath: r.opts.ConfigPath, TokenFlag: r.opts.TokenFlag, CheckUpdate: r.opts.CheckUpdate,
+	}, rep)
+	switch {
+	case err != nil:
+		return ui.Session{}, err
+	case res.Restart != nil:
+		r.restart = res.Restart
+		return ui.Session{Restart: res.Restart.Version}, nil
+	case r.ctx.Err() != nil:
+		if res.Source != nil {
+			res.Source.Close()
+		}
+		return ui.Session{}, r.ctx.Err()
+	}
+
+	sup := supervisor.New(supervisor.Options{
+		ConfigPath:  r.opts.ConfigPath,
+		DiscordPath: r.opts.DiscordPath,
+		Mode:        r.opts.Mode,
+		Provision:   res.Provision,
+		Source:      res.Source,
+	})
+	stopTray, trayErr := startTray(sup)
+	done := make(chan struct{})
+	go func() {
+		sup.Run(r.ctx)
+		close(done)
+	}()
+
+	r.mu.Lock()
+	r.sup, r.done, r.stopTray = sup, done, stopTray
+	r.mu.Unlock()
+
+	sess := ui.Session{Sup: sup, Profile: res.Origin, TrayHint: stopTray != nil, TrayErr: trayErr}
+	// A .conf takes no token, so there is nothing to replace.
+	if r.opts.ConfigPath == "" && res.Provision.Configured() {
+		sess.ApplyToken = applyToken(sup)
+	}
+	return sess, nil
+}
+
+// wait returns once whatever boot started has stopped.
+func (r *run) wait() {
+	r.mu.Lock()
+	booted := r.booted
+	r.mu.Unlock()
+	if booted == nil {
+		return
+	}
+	<-booted
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.done != nil {
+		<-r.done
+	}
+	if r.stopTray != nil {
+		r.stopTray()
+	}
+}
+
+func (r *run) started() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.booted != nil
+}
+
+// screen reports false when the terminal cannot draw it, so the caller falls
+// back to plain text; startup runs only once the screen is up, so nothing is
+// left half done then.
+func (r *run) screen(cancel context.CancelFunc) bool {
+	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
+		return false
+	}
+	m := ui.New(r.ctx, ui.Options{Version: update.Version, Boot: r.boot, Stop: cancel})
+	if _, err := tea.NewProgram(m).Run(); err != nil && !r.started() {
+		fmt.Fprintln(r.opts.Err, "a interface não pôde ser desenhada, seguindo em modo texto")
+		return false
+	}
+	return true
+}
+
+// plain runs startup and the tunnel printing line by line, for consoles that
+// cannot draw the screen.
+func (r *run) plain() int {
+	sess, err := r.boot(plainReporter{out: r.opts.Out, prompt: connectiontoken.Terminal()})
+	if err != nil {
+		if errors.Is(err, profile.ErrNoProfile) {
+			fmt.Fprintln(r.opts.Err, profile.HelpText)
+		} else if r.ctx.Err() == nil {
+			fmt.Fprintln(r.opts.Err, "erro:", errtext.Translate(err))
+		}
+		return 1
+	}
+	if sess.Sup == nil {
+		return 0
+	}
+	runPlain(r.ctx, r.opts, sess.Sup.Updates(), sess.Profile, sess.TrayErr, sess.ApplyToken)
 	return 0
 }
+
+// plainReporter prints each step once it settles, and a running step when its
+// line changes, but not every percent of a download.
+type plainReporter struct {
+	out    io.Writer
+	prompt connectiontoken.Prompter
+}
+
+func (p plainReporter) Step(_ startup.Step, state startup.State, detail string, fraction float64) {
+	switch state {
+	case startup.Running:
+		if fraction <= 0 {
+			fmt.Fprintf(p.out, "  · %s\n", detail)
+		}
+	case startup.Done:
+		fmt.Fprintf(p.out, "  ✓ %s\n", detail)
+	case startup.Skipped:
+		fmt.Fprintf(p.out, "  – %s\n", detail)
+	case startup.Failed:
+		fmt.Fprintf(p.out, "  ✗ %s\n", detail)
+	}
+}
+
+func (p plainReporter) Tell(msg string)      { p.prompt.Tell(msg) }
+func (p plainReporter) Ask() (string, error) { return p.prompt.Ask() }
 
 // readLines delivers what is typed, or nil when nothing will read stdin. The
 // goroutine outlives ctx, since a read in progress can't be cancelled; it ends
@@ -152,20 +269,6 @@ func applyToken(sup *supervisor.Supervisor) ui.ApplyToken {
 		sup.UseToken(token.Provisioning())
 		return nil
 	}
-}
-
-// runTUI reports false when the terminal cannot draw the screen, so the caller
-// falls back to plain text.
-func runTUI(opts Options, sup *supervisor.Supervisor, cancel context.CancelFunc, profileName string, trayHint bool, trayErr error, apply ui.ApplyToken) bool {
-	m := ui.New(sup, profileName, trayHint, trayErr, apply)
-
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
-		fmt.Fprintln(opts.Err, "a interface não pôde ser desenhada, seguindo em modo texto")
-		return false
-	}
-
-	cancel()
-	return true
 }
 
 // runPlain prints state changes line by line, for consoles that cannot draw the
