@@ -143,7 +143,7 @@ func TestDownloadVerifiesHash(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	path, err := u.download(context.Background(), m.Version, *asset, dir)
+	path, err := u.download(context.Background(), m.Version, *asset, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestDownloadVerifiesHash(t *testing.T) {
 	}
 
 	r.binaries["v1.2.0/discord-go-vpn"] = []byte("bad")
-	if _, err := testUpdater(serve(t, r), "v1.0.0", pub).download(context.Background(), m.Version, *asset, dir); err == nil {
+	if _, err := testUpdater(serve(t, r), "v1.0.0", pub).download(context.Background(), m.Version, *asset, dir, nil); err == nil {
 		t.Fatal("a binary that doesn't match the manifest was accepted")
 	}
 	entries, _ := os.ReadDir(dir)

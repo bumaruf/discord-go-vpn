@@ -5,34 +5,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/bumaruf/discord-go-vpn/internal/supervisor"
 )
 
 func askingModel(ask supervisor.TokenAsk, apply ApplyToken) Model {
-	return Model{
-		spin:       spinner.New(),
-		width:      84,
-		profile:    "acesso do servidor",
-		status:     supervisor.Status{State: supervisor.StateFallback, TokenAsk: ask},
-		applyToken: apply,
-	}
+	m := dashboard(supervisor.Status{State: supervisor.StateFallback, TokenAsk: ask})
+	m.sess.ApplyToken = apply
+	return m
 }
 
 func typeRunes(m Model, text string) Model {
-	next, _ := m.updateTokenField(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)})
-	return next.(Model)
-}
-
-func press(m Model, key tea.KeyType) Model {
-	next, _ := m.Update(tea.KeyMsg{Type: key})
-	return next.(Model)
+	for _, r := range text {
+		m = pressKey(m, string(r))
+	}
+	return m
 }
 
 func TestScreenAsksForATokenWhenOneWouldHelp(t *testing.T) {
-	refused := askingModel(supervisor.TokenRefused, func(string) error { return nil }).View()
+	refused := screenOf(askingModel(supervisor.TokenRefused, func(string) error { return nil }))
 	t.Logf("\n%s", refused)
 
 	for _, want := range []string{"Cole um token de conexão novo", "revogado", "dgv1_", "enter", "esc"} {
@@ -44,13 +36,13 @@ func TestScreenAsksForATokenWhenOneWouldHelp(t *testing.T) {
 		t.Error("the footer offers unrelated keys while the field takes the keyboard")
 	}
 
-	silent := askingModel(supervisor.TokenUnanswered, func(string) error { return nil }).View()
+	silent := screenOf(askingModel(supervisor.TokenUnanswered, func(string) error { return nil }))
 	if !strings.Contains(silent, "não respondeu") {
 		t.Errorf("a silent server must say so:\n%s", silent)
 	}
 
 	// Without a token there is nothing to replace, so the field never shows up.
-	withConf := askingModel(supervisor.TokenRefused, nil).View()
+	withConf := screenOf(askingModel(supervisor.TokenRefused, nil))
 	if strings.Contains(withConf, "Cole um token") {
 		t.Errorf("the field showed up with no token in use:\n%s", withConf)
 	}
@@ -65,18 +57,18 @@ func TestTokenFieldHandsTheTokenOverAndKeepsTypingOffTheCommands(t *testing.T) {
 
 	// "q" would quit and "r" would reconnect if the field did not take the keys.
 	m = typeRunes(m, "dgv1_qr")
-	m = typeRunes(m, "tokenx ")
-	m = press(m, tea.KeyBackspace)
-	if m.quit {
+	next, _ := m.Update(tea.PasteMsg{Content: "tokenx \n"})
+	m = pressKey(next.(Model), "backspace")
+	if m.stopping {
 		t.Fatal("typing in the field quit the screen")
 	}
-	if !strings.Contains(m.View(), "dgv1_qrtokenx") {
-		t.Errorf("what was typed is not on screen:\n%s", m.View())
+	if !strings.Contains(screenOf(m), "dgv1_qrtoken") {
+		t.Errorf("what was typed is not on screen:\n%s", screenOf(m))
 	}
 
-	m = press(m, tea.KeyEnter)
-	// A pasted token often brings a trailing space, which is not part of it.
-	if got != "dgv1_qrtokenx" {
+	m = pressKey(m, "enter")
+	// A pasted token often brings a trailing space or newline, which is not part of it.
+	if got != "dgv1_qrtoken" {
 		t.Errorf("token handed over = %q, want what was typed, trimmed", got)
 	}
 	if len(m.tokenField) != 0 {
@@ -89,10 +81,9 @@ func TestTokenFieldKeepsAMalformedTokenOnScreenWithItsError(t *testing.T) {
 		return errors.New("isso não é um token de conexão")
 	})
 
-	m = typeRunes(m, "nao-e-token")
-	m = press(m, tea.KeyEnter)
+	m = pressKey(typeRunes(m, "nao-e-token"), "enter")
 
-	screen := m.View()
+	screen := screenOf(m)
 	if !strings.Contains(screen, "isso não é um token de conexão") {
 		t.Errorf("the refusal is not on screen:\n%s", screen)
 	}
@@ -102,9 +93,25 @@ func TestTokenFieldKeepsAMalformedTokenOnScreenWithItsError(t *testing.T) {
 }
 
 func TestTokenFieldEscStillQuits(t *testing.T) {
-	m := askingModel(supervisor.TokenRefused, func(string) error { return nil })
-
-	if m = press(typeRunes(m, "dgv1_x"), tea.KeyEsc); !m.quit {
+	m := typeRunes(askingModel(supervisor.TokenRefused, func(string) error { return nil }), "dgv1_x")
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); !isQuit(cmd) {
 		t.Error("esc must still quit while the field is on screen")
+	}
+}
+
+func TestBootTokenGoesToStartup(t *testing.T) {
+	m := New(t.Context(), Options{Version: "v1.4.0"})
+	m.asking = true
+	m = pressKey(typeRunes(m, "dgv1_abc"), "enter")
+	select {
+	case got := <-m.answers:
+		if got != "dgv1_abc" {
+			t.Errorf("startup got %q", got)
+		}
+	default:
+		t.Fatal("enter didn't hand the token to startup")
+	}
+	if m.asking {
+		t.Error("the field must leave while startup validates the token")
 	}
 }

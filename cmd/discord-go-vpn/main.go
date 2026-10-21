@@ -3,19 +3,15 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
 	"runtime"
 
 	"github.com/bumaruf/discord-go-vpn/internal/app"
-	"github.com/bumaruf/discord-go-vpn/internal/connectiontoken"
-	"github.com/bumaruf/discord-go-vpn/internal/errtext"
 	"github.com/bumaruf/discord-go-vpn/internal/platform/console"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
-	"github.com/bumaruf/discord-go-vpn/internal/update"
 )
 
 func main() {
@@ -44,36 +40,12 @@ func main() {
 		console.EnsureElevated()
 	}
 
-	// Before the tunnel exists, so updating never drops a call.
-	if !*noUpdate {
-		code, replaced, err := update.Run(context.Background(), os.Stdout)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "não consegui atualizar: %s\n", errtext.Translate(err))
-		}
-		if replaced {
-			exitWith(code)
-		}
-	}
-
-	// A .conf needs no server, so the token is asked for only without one.
-	profilePath := pickProfile(*configPath)
-	var provision profile.Provisioning
-	var lease *profile.Source
-	if profilePath == "" {
-		token, validated, err := connectiontoken.Ensure(*tokenFlag)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "\n%v\n", err)
-			exitWith(1)
-		}
-		provision, lease = token.Provisioning(), validated
-	}
-
 	exitWith(app.Run(app.Options{
-		ConfigPath:  profilePath,
+		ConfigPath:  pickProfile(*configPath),
 		DiscordPath: *discordPath,
 		Mode:        mode,
-		Provision:   provision,
-		Source:      lease,
+		TokenFlag:   *tokenFlag,
+		CheckUpdate: !*noUpdate,
 	}))
 }
 

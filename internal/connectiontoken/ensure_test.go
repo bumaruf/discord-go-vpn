@@ -38,7 +38,7 @@ func TestEnsureHandsOverValidationLease(t *testing.T) {
 	prov := profiletest.NewProvisiond(t)
 	want := tokenFor(prov)
 
-	token, lease, err := Ensure(want.String())
+	token, lease, err := Ensure(want.String(), Terminal())
 	if token != want || lease == nil || err != nil {
 		t.Fatalf("Ensure = (%+v, %v, %v), want (%+v, a lease, nil)", token, lease, err, want)
 	}
@@ -61,7 +61,7 @@ func TestEnsureReadsTokenFromEnv(t *testing.T) {
 	want := tokenFor(prov)
 	t.Setenv("VPN_TOKEN", want.String())
 
-	token, lease, err := Ensure("")
+	token, lease, err := Ensure("", Terminal())
 	if lease != nil {
 		lease.Close()
 	}
@@ -76,7 +76,7 @@ func TestEnsureWithUnavailableServerHandsOverNoLease(t *testing.T) {
 	prov.LeaseStatus = http.StatusServiceUnavailable
 	want := tokenFor(prov)
 
-	token, lease, err := Ensure(want.String())
+	token, lease, err := Ensure(want.String(), Terminal())
 	if token != want || lease != nil || err != nil {
 		t.Errorf("Ensure = (%+v, %v, %v), want (%+v, nil, nil)", token, lease, err, want)
 	}

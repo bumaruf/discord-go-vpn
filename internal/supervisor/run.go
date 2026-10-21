@@ -7,6 +7,7 @@ import (
 
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/transport"
+	"github.com/bumaruf/discord-go-vpn/internal/wg"
 )
 
 // session holds what one successful connection owns.
@@ -97,15 +98,18 @@ func (s *Supervisor) Run(ctx context.Context) {
 		// Discord is never inside a new session yet: after a drop it is still in
 		// the closed netns on Linux, and on Windows its connections left through
 		// the normal network while no filter was up.
+		s.set(func(st *Status) { st.OpeningDiscord = true })
 		_, err = sess.tr.Open(s.opts.DiscordPath)
-		s.set(func(st *Status) { st.DiscordTunneled = err == nil })
+		s.set(func(st *Status) { st.DiscordTunneled, st.OpeningDiscord = err == nil, false })
 
 		s.set(func(st *Status) {
 			st.State = StateHealthy
 			st.Failures = 0
 			st.LastError = nil
 			st.TokenAsk = TokenFine
+			st.Endpoint, st.Address = describe(sess.source.Config)
 		})
+		s.useMeter(sess.tr)
 
 		// This connection already served a nudge sent while connecting; left in
 		// the channel, it would skip the next backoff.
@@ -113,12 +117,25 @@ func (s *Supervisor) Run(ctx context.Context) {
 
 		s.watch(ctx, sess)
 
+		s.useMeter(nil)
+		s.set(func(st *Status) { st.Endpoint, st.Address = "", "" })
 		// Closed before the next attempt: both transports tear down by fixed
 		// name (the netns, every wiresock-client.exe), so a later Close would
 		// take the replacement tunnel down, and the lease would stay held.
 		current.close()
 		current = nil
 	}
+}
+
+// describe names where the session leads, for the screen.
+func describe(cfg *wg.Config) (endpoint, address string) {
+	if cfg == nil {
+		return "", ""
+	}
+	if len(cfg.Addresses) > 0 {
+		address = cfg.Addresses[0].String()
+	}
+	return cfg.Peer.Endpoint, address
 }
 
 // tokenAsk decides whether another token could get this attempt in. A refusal
@@ -184,6 +201,10 @@ func (s *Supervisor) connect(ctx context.Context) (*session, error) {
 func (s *Supervisor) watch(ctx context.Context, sess *session) {
 	health := time.NewTicker(s.opts.ProbeEvery)
 	defer health.Stop()
+
+	rttCtx, stopRTT := context.WithCancel(ctx)
+	defer stopRTT()
+	go s.measureRTT(rttCtx)
 
 	for {
 		select {

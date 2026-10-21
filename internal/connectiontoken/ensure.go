@@ -19,32 +19,56 @@ const (
 
 var errNoTerminal = errors.New("sem token de conexão e sem terminal para pedir um: use -token dgv1_... ou VPN_TOKEN")
 
+// Prompter is how Ensure talks to the person: the terminal, or the screen.
+type Prompter interface {
+	// Checking says a token from origin is being validated with the server.
+	Checking(origin string)
+	// Tell shows what happened to the last token.
+	Tell(msg string)
+	// Ask returns a typed token; an error ends Ensure.
+	Ask() (string, error)
+}
+
+// Where a candidate token came from, as the screen names it.
+const (
+	OriginFlag  = "do -token"
+	OriginEnv   = "de VPN_TOKEN"
+	OriginSaved = "salvo"
+	OriginTyped = "colado agora"
+)
+
+// UnavailableHelp is told when the server didn't answer about a token.
+const UnavailableHelp = "O servidor de acesso não respondeu agora; vou tentar conectar assim mesmo."
+
 // Ensure returns the connection token to lease with, prompting until the server accepts one,
 // and the lease acquired while validating it, or nil; the caller owns the lease. It fails
-// only when it must prompt and stdin is closed.
-func Ensure(flagToken string) (Token, *profile.Source, error) {
-	candidates := []string{flagToken, os.Getenv("VPN_TOKEN"), Saved()}
-	reader := bufio.NewReader(os.Stdin)
+// only when Ask does.
+func Ensure(flagToken string, p Prompter) (Token, *profile.Source, error) {
+	type candidate struct{ token, origin string }
+	candidates := []candidate{{flagToken, OriginFlag}, {os.Getenv("VPN_TOKEN"), OriginEnv}, {Saved(), OriginSaved}}
 
 	for {
-		var input string
+		var input, origin string
 		for len(candidates) > 0 && input == "" {
-			input, candidates = strings.TrimSpace(candidates[0]), candidates[1:]
+			input, origin = strings.TrimSpace(candidates[0].token), candidates[0].origin
+			candidates = candidates[1:]
 		}
 
 		if input == "" {
 			var err error
-			if input, err = prompt(reader); err != nil {
+			if input, err = p.Ask(); err != nil {
 				return Token{}, nil, err
 			}
+			origin = OriginTyped
 		}
 
 		token, err := Parse(input)
 		if err != nil {
-			fmt.Println("\n" + MalformedHelp)
+			p.Tell(MalformedHelp)
 			continue
 		}
 
+		p.Checking(origin)
 		result, lease := Validate(token.Provisioning())
 		switch result {
 		case Accepted:
@@ -52,24 +76,33 @@ func Ensure(flagToken string) (Token, *profile.Source, error) {
 			return token, lease, nil
 
 		case Refused:
-			fmt.Println("\n" + RefusedHelp)
+			p.Tell(RefusedHelp)
 			Forget()
 
 		case Unavailable:
 			// Says nothing about the token, so keep it and start anyway: the supervisor
 			// retries with backoff.
-			fmt.Fprintln(os.Stderr, "O servidor de acesso não respondeu agora; vou tentar conectar assim mesmo.")
+			p.Tell(UnavailableHelp)
 			Save(token)
 			return token, nil, nil
 		}
 	}
 }
 
-func prompt(reader *bufio.Reader) (string, error) {
+// Terminal prompts on stdin, for consoles that can't draw the screen.
+func Terminal() Prompter { return &terminal{reader: bufio.NewReader(os.Stdin)} }
+
+type terminal struct{ reader *bufio.Reader }
+
+func (t *terminal) Checking(string) {}
+
+func (t *terminal) Tell(msg string) { fmt.Println("\n" + msg) }
+
+func (t *terminal) Ask() (string, error) {
 	fmt.Println("Cole o token de conexão que você recebeu (começa com dgv1_):")
 	fmt.Print("> ")
 
-	line, err := reader.ReadString('\n')
+	line, err := t.reader.ReadString('\n')
 	if err != nil && line == "" {
 		return "", errNoTerminal
 	}

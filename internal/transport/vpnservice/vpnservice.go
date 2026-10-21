@@ -107,6 +107,17 @@ func (t *Transport) Ready() error {
 	}
 }
 
+func (t *Transport) Traffic() (wg.Traffic, error) {
+	if t.dev == nil {
+		return wg.Traffic{}, errors.New("o túnel não chegou a subir")
+	}
+	uapi, err := t.dev.IpcGet()
+	if err != nil {
+		return wg.Traffic{}, err
+	}
+	return wg.ParseTraffic(uapi), nil
+}
+
 // Open can't restart Discord as the desktop does, since no app may close another:
 // connections Discord already held may stay outside until it reconnects.
 func (t *Transport) Open(string) (string, error) {

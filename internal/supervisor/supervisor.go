@@ -50,6 +50,8 @@ type Status struct {
 
 	// DiscordTunneled tells whether the running client is inside the tunnel.
 	DiscordTunneled bool
+	// OpeningDiscord is set while a tunnel that just came up restarts Discord.
+	OpeningDiscord bool
 
 	LastErrorAt time.Time
 
@@ -63,6 +65,10 @@ type Status struct {
 
 	// TokenAsk is set only while leasing: a .conf profile takes no token.
 	TokenAsk TokenAsk
+
+	// Endpoint and Address describe the session up now; empty without one.
+	Endpoint string
+	Address  string
 }
 
 // Uptime is how long the current state has lasted.
@@ -124,6 +130,12 @@ type Supervisor struct {
 
 	// initial is Options.Source until connect takes it.
 	initial *profile.Source
+
+	// meterMu guards what Reading reads, apart from mu so a slow Traffic call
+	// never delays a status update.
+	meterMu sync.Mutex
+	meter   transport.Meter
+	rtt     time.Duration
 
 	// Dependencies New wires to the real implementations; tests replace them.
 	openProfile    func(path string, prov profile.Provisioning) (*profile.Source, error)
