@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"bytes"
+	"image"
 	"image/color"
+	"image/png"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -201,6 +204,30 @@ func cutEyes(canvas *[canvasH][spriteW]bool, p pose) {
 			canvas[row][left+1+p.look] = false
 		}
 	}
+}
+
+// MascotPNG draws the resting mascot in c, eyes open, centred on a transparent
+// square of size pixels, for an icon.
+func MascotPNG(c color.Color, size int) []byte {
+	scale := max(1, size/spriteW)
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	left, top := (size-spriteW*scale)/2, (size-spriteH*scale)/2
+	for y, line := range sprite {
+		for x, px := range line {
+			eye := (y == 3 || y == 4) && (x == 3 || x == 4 || x == 7 || x == 8)
+			if px != '#' || eye {
+				continue
+			}
+			for dy := range scale {
+				for dx := range scale {
+					img.Set(left+x*scale+dx, top+y*scale+dy, c)
+				}
+			}
+		}
+	}
+	var b bytes.Buffer
+	_ = png.Encode(&b, img)
+	return b.Bytes()
 }
 
 func halfBlock(top, bottom bool) string {

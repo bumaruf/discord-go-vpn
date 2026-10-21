@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/bumaruf/discord-go-vpn/internal/connectiontoken"
+	"github.com/bumaruf/discord-go-vpn/internal/control"
 	"github.com/bumaruf/discord-go-vpn/internal/errtext"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
@@ -80,6 +81,14 @@ func Run(opts Options) int {
 		cancel()
 	}()
 
+	// With the Linux service installed, the screen follows its tunnel instead of
+	// raising one of its own; -c and -token ask for a run of their own.
+	if opts.ConfigPath == "" && opts.TokenFlag == "" {
+		if conn, err := control.Dial(); err == nil {
+			return attach(ctx, opts, conn)
+		}
+	}
+
 	r := &run{opts: opts, ctx: ctx}
 	code := 0
 	if !r.screen(cancel) {
@@ -140,7 +149,7 @@ func (r *run) boot(rep startup.Reporter) (ui.Session, error) {
 	r.sup, r.done, r.stopTray = sup, done, stopTray
 	r.mu.Unlock()
 
-	sess := ui.Session{Sup: sup, Profile: res.Origin, TrayHint: stopTray != nil, TrayErr: trayErr}
+	sess := ui.Session{Tunnel: sup, Profile: res.Origin, TrayHint: stopTray != nil, TrayErr: trayErr}
 	// A .conf takes no token, so there is nothing to replace.
 	if r.opts.ConfigPath == "" && res.Provision.Configured() {
 		sess.ApplyToken = applyToken(sup)
@@ -189,22 +198,50 @@ func (r *run) screen(cancel context.CancelFunc) bool {
 	return true
 }
 
+// attach draws the service's tunnel. Closing the screen leaves it up.
+func attach(ctx context.Context, opts Options, conn *control.Conn) int {
+	defer conn.Close()
+	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
+		fmt.Fprintln(opts.Err, "o serviço está instalado: use a bandeja, ou abra num terminal para ver o painel")
+		return 1
+	}
+	boot := func(rep startup.Reporter) (ui.Session, error) {
+		rm, sess, err := control.Attach(conn, rep)
+		switch {
+		case err != nil:
+			return ui.Session{}, err
+		case sess.Restart != "":
+			return ui.Session{Restart: sess.Restart}, nil
+		}
+		s := ui.Session{Tunnel: rm, Profile: sess.Profile}
+		if rm.Leasing() {
+			s.ApplyToken = rm.UseToken
+		}
+		return s, nil
+	}
+	m := ui.New(ctx, ui.Options{Version: update.Version, Boot: boot, Detached: true})
+	if _, err := tea.NewProgram(m).Run(); err != nil {
+		fmt.Fprintln(opts.Err, "a interface não pôde ser desenhada:", err)
+		return 1
+	}
+	return 0
+}
+
 // plain runs startup and the tunnel printing line by line, for consoles that
 // cannot draw the screen.
 func (r *run) plain() int {
 	sess, err := r.boot(plainReporter{out: r.opts.Out, prompt: connectiontoken.Terminal()})
 	if err != nil {
+		// The failed step already printed the error.
 		if errors.Is(err, profile.ErrNoProfile) {
 			fmt.Fprintln(r.opts.Err, profile.HelpText)
-		} else if r.ctx.Err() == nil {
-			fmt.Fprintln(r.opts.Err, "erro:", errtext.Translate(err))
 		}
 		return 1
 	}
-	if sess.Sup == nil {
+	if sess.Tunnel == nil {
 		return 0
 	}
-	runPlain(r.ctx, r.opts, sess.Sup.Updates(), sess.Profile, sess.TrayErr, sess.ApplyToken)
+	runPlain(r.ctx, r.opts, sess.Tunnel.Updates(), sess.Profile, sess.TrayErr, sess.ApplyToken)
 	return 0
 }
 

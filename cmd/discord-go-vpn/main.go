@@ -15,6 +15,18 @@ import (
 )
 
 func main() {
+	// The Linux install's two halves: the root service and the session's tray.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "service":
+			os.Exit(runService(os.Args[2:]))
+		case "tray":
+			os.Exit(runTray())
+		case "icon":
+			os.Exit(writeIcon(os.Args[2:]))
+		}
+	}
+
 	configPath := flag.String("c", "", "perfil .conf do WireGuard (o padrão é procurar na pasta do programa)")
 	discordPath := flag.String("discord", "", "caminho do executável do Discord (quando a busca automática não acha)")
 	tokenFlag := flag.String("token", "", "atalho: o token de conexão dgv1_... (o padrão é pedir no terminal)")

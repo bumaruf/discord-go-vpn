@@ -24,6 +24,7 @@ downloads — continua na rede normal. No celular, o app Android faz o mesmo.
 - [Arquitetura](#arquitetura)
 - [Começando](#começando)
 - [Linux e Windows](#linux-e-windows)
+  - [Instalando no Linux](#instalando-no-linux)
 - [Android](#android)
 - [Compilando](#compilando)
 - [Atualização automática](#atualização-automática)
@@ -148,7 +149,9 @@ no painel e te manda um **token de conexão**, uma linha que começa com `dgv1_`
 e carrega o endereço do servidor, a impressão digital do certificado dele e o
 convite.
 
-- **Linux:** `sudo ./discord-go-vpn`
+- **Linux:** instale uma vez e use pela bandeja (abaixo, em
+  [Instalando no Linux](#instalando-no-linux)). Sem instalar, também dá para rodar
+  avulso: `sudo ./discord-go-vpn`.
 - **Windows:** duplo clique no `.exe` e aceite o aviso de administrador.
 
 Na primeira vez, o programa **pede o token** na própria tela de início:
@@ -163,13 +166,14 @@ Windows, cole o token na janela que abre depois do aviso de administrador.
 
 O token fica guardado no diretório de configuração de quem executa o programa:
 `%AppData%\discord-go-vpn\token` no Windows e `~/.config/discord-go-vpn/token`
-no Linux (com `sudo`, normalmente o do root). Não há `.conf` nem chave privada
+no Linux (com `sudo`, normalmente o do root; instalado, em
+`/var/lib/discord-go-vpn/discord-go-vpn/token`, só para o root). Não há `.conf` nem chave privada
 para guardar: as chaves são geradas a cada execução e descartadas ao sair. No
 painel, a máquina aparece pelo nome do computador e pelo usuário do sistema que
 abriu o programa.
 
 Para trocar de token, rode uma vez com `-token dgv1_…` — o novo substitui o
-guardado. Se o servidor não responder, o token continua guardado e o programa
+guardado (instalado no Linux, cole o novo no campo do painel). Se o servidor não responder, o token continua guardado e o programa
 tenta de novo.
 
 Se o convite for revogado, o programa avisa e pede outro token — na partida, no
@@ -262,13 +266,41 @@ O modo é escolhido pelo sistema.
 |---|---|---|
 | **Modo** | `netns` | `wiresock` |
 | **Mecanismo** | o Discord roda num namespace de rede cuja única saída é o túnel | o WireSock instala um filtro WFP no kernel que captura só os processos do Discord |
-| **Privilégio** | `root` (`sudo`) | administrador (o `.exe` já pede, pelo UAC) |
+| **Privilégio** | `root`: o serviço instalado, ou `sudo` avulso | administrador (o `.exe` já pede, pelo UAC) |
 | **Dependências** | `iproute2` (comando `ip`) | WireSock, instalado sozinho pelo `winget` na primeira execução |
 
 Fora do Linux e do Windows não há modo: capturar um processo inteiro depende de
 um mecanismo do sistema operacional. O programa diz isso e para, em vez de subir
 um túnel por onde o Discord não passaria. No Android esse mecanismo existe, e o
 app próprio o usa (abaixo).
+
+### Instalando no Linux
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bumaruf/discord-go-vpn/main/install.sh | sudo sh
+```
+
+O instalador (`install.sh`) põe o programa em `/opt/discord-go-vpn` e cria três
+coisas:
+
+- **um serviço systemd** (`discord-go-vpn.service`), que roda como root e é o
+  único que mexe na rede. Ele fica parado até alguém pedir para conectar, e
+  então faz o que o `sudo ./discord-go-vpn` fazia: atualização, acesso, túnel e
+  Discord, aberto como o seu usuário, na sua sessão;
+- **um ícone na bandeja**, que abre sozinho a cada login e conecta o túnel. O
+  ícone é o Clyde, na cor do estado: azul conectado, amarelo reconectando,
+  vermelho com o Discord na rede normal, cinza desconectado. O menu tem
+  conectar/desconectar, tentar agora, abrir o painel e sair;
+- **o painel**: `discord-go-vpn` num terminal, sem `sudo`, mostra o túnel do
+  serviço. Fechar o painel não derruba nada.
+
+Sem token salvo, o serviço pede um e a bandeja abre o painel para colar. Um
+token salvo por um `sudo ./discord-go-vpn` anterior é aproveitado. Com o serviço
+instalado, `-c` e `-token` ainda rodam um túnel avulso, como antes.
+
+O ícone aparece em barras que seguem o StatusNotifierItem (Waybar, KDE, a
+extensão AppIndicator do GNOME). Para remover: `sudo sh install.sh --uninstall`
+(`--purge` apaga também o token).
 
 ### Particularidades do Windows
 
@@ -345,7 +377,9 @@ clientes: para isso precisaria da chave privada, que existe só como secret do C
 
 - **Linux:** o arquivo novo substitui o antigo com um `rename`, fica com o mesmo
   dono do antigo (e não com o root do `sudo`), e o processo se troca pelo novo
-  via `exec`, mantendo o `sudo` e o terminal.
+  via `exec`, mantendo o `sudo` e o terminal. Instalado, quem atualiza é o
+  serviço, a cada conexão e antes do túnel subir; a bandeja vê a versão nova do
+  serviço e se reabre nela.
 - **Windows:** um `.exe` em execução não pode ser sobrescrito, mas pode ser
   renomeado: o antigo vira `discord-go-vpn.exe.old`, que a próxima abertura
   apaga. A versão nova roda como processo filho na mesma janela.
@@ -438,6 +472,7 @@ cmd/provisiond/        o servidor de acessos: flags e a ligação dos pacotes de
 cmd/updatesign/        cria a chave de atualização e assina o update.json de uma release
 internal/app/          liga as peças e controla o ciclo de vida (TUI, modo texto, bandeja)
 internal/contracttest/ confere os formatos de rede de testdata/contracts/ contra os tipos Go
+internal/control/      o socket local entre o serviço Linux e seus clientes (bandeja e painel)
 internal/discord/      encontra, fecha e reabre o cliente do Discord
 internal/errtext/      traduz para pt-BR os erros mostrados a quem usa
 internal/connectiontoken/ lê, pede, valida e guarda o token de conexão
@@ -445,9 +480,11 @@ internal/platform/     console, elevação e bandeja do Windows
 internal/profile/      de onde vem a configuração: .conf local ou acesso do servidor
 internal/provisiond/   o servidor de acessos por dentro: leases, convites, métricas, stream e ações do painel
 internal/routing/      os modos de rota (netns, wiresock)
+internal/service/      o serviço Linux: segura o túnel como root e atende a bandeja e o painel
 internal/supervisor/   mantém o túnel de pé, reconecta e faz o fallback
 internal/statustext/   os nomes dos estados e os textos que a tela, a bandeja e o app Android mostram
 internal/transport/    põe o Discord no túnel: netns no Linux, WireSock no Windows, VpnService no Android
+internal/trayapp/      a bandeja do Linux
 internal/startup/      o que vem antes do túnel: atualização e acesso, etapa por etapa
 internal/ui/           a interface de texto: início animado, painel e gráfico
 internal/update/       a atualização automática: confere o manifesto assinado, troca o executável e reabre
@@ -457,6 +494,7 @@ panel/                 painel de administração (Next.js num Cloudflare Worker)
 server/                o que roda na VPS (Docker Compose, Caddy, scripts)
 testdata/contracts/    os formatos de rede que o Go e o painel conferem
 docs/                  glossário dos termos do domínio
+install.sh             o instalador do Linux: serviço systemd, bandeja e atalhos
 ```
 
 ## Limites conhecidos

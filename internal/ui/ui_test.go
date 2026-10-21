@@ -365,7 +365,7 @@ func TestQuitKeepsTheScreenUntilTheTunnelIsDown(t *testing.T) {
 	stopped := false
 	m := dashboard(healthy())
 	m.opts.Stop = func() { stopped = true }
-	m.sess.Sup = supervisor.New(supervisor.Options{})
+	m.sess.Tunnel = supervisor.New(supervisor.Options{})
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	m = next.(Model)
