@@ -14,6 +14,7 @@ The code grew faster than its conventions. Only the rules under **Decisions** we
 - **Renames keep the old name working.** When a route, JSON key, ticket field, env var, flag, file on disk or in the volume, or Mongo collection, field or value gets a new name, the code accepts both and the pair goes into `docs/legacy.md` in the same PR, creating the file if it doesn't exist. Legacy is removed in one pass, when the owner judges every user has migrated; until then Mongo keeps its old names.
 - **DRY and Clean Code** are the standards for architecture and code organization.
 - **Comments only where they are necessary.** A comment earns its place by saying what the code can't: why a surprising choice was made, a non-obvious constraint or gotcha, a contract with another component. Clear code stays uncommented. Keep each comment short and each fact in one place — not restated at every call site, in the package doc and in the README.
+- **Release tags are semver versions** (`v1.2.3`), never dates: clients update only to a higher semver, so a date tag would outrank every later version.
 - **Commits:** `type(scope): description`, in English. Scopes: `client`, `android`, `panel`, `provisiond`, `server`, `tray`, `docs`, `contracts` (Go and TypeScript changed together), `ci`.
 
 ## Where things are

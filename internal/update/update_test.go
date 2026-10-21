@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -102,6 +103,16 @@ func TestCheckIgnoresMissingPlatform(t *testing.T) {
 	}
 }
 
+func TestCheckReportsReleaseWithoutManifest(t *testing.T) {
+	pub, _ := newKey(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+
+	if _, _, err := testUpdater(srv.URL, "v1.0.0", pub).check(context.Background()); !errors.Is(err, errNoManifest) {
+		t.Fatalf("err = %v, want errNoManifest", err)
+	}
+}
+
 func TestCheckRejectsForeignSignature(t *testing.T) {
 	pub, _ := newKey(t)
 	_, otherPriv := newKey(t)
@@ -166,6 +177,27 @@ func TestReplace(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(exe); string(got) != "new" {
 		t.Fatalf("executable holds %q, want %q", got, "new")
+	}
+}
+
+func TestRemoveLeftoversDeletesInterruptedDownloads(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "discord-go-vpn")
+	for _, name := range []string{"discord-go-vpn", ".discord-go-vpn-update-123", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removeLeftovers(exe)
+
+	var names []string
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != "discord-go-vpn notes.txt" {
+		t.Fatalf("left %v, want only the executable and notes.txt", names)
 	}
 }
 

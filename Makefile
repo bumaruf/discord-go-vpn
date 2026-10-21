@@ -27,11 +27,13 @@ dist:
 	@mkdir -p $(DIST)
 	@echo "· linux/amd64"
 	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)           $(PKG)
+	@echo "· linux/arm64"
+	@GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)-arm64     $(PKG)
 	@echo "· windows/amd64"
 	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN).exe       $(PKG)
 	@echo "· windows/arm64"
 	@GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)-arm64.exe $(PKG)
-	@cd $(DIST) && sha256sum $(BIN) $(BIN).exe $(BIN)-arm64.exe > SHA256SUMS
+	@cd $(DIST) && sha256sum $(BIN) $(BIN)-arm64 $(BIN).exe $(BIN)-arm64.exe > SHA256SUMS
 	@ls -lh $(DIST)
 	@echo
 	@echo "publish SHA256SUMS with the binaries -- it is how anyone"
@@ -40,7 +42,7 @@ dist:
 
 sign:
 	@go run ./cmd/updatesign sign -version $(VERSION) -dir $(DIST) \
-	  linux/amd64=$(BIN) windows/amd64=$(BIN).exe windows/arm64=$(BIN)-arm64.exe
+	  linux/amd64=$(BIN) linux/arm64=$(BIN)-arm64 windows/amd64=$(BIN).exe windows/arm64=$(BIN)-arm64.exe
 	@echo "· $(DIST)/update.json, $(DIST)/update.json.sig"
 
 # Needs ImageMagick; build/icon.ico is committed. The panel's favicon is the only source of the
