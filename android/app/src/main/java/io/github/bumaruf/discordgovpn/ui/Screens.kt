@@ -253,7 +253,10 @@ private fun StatusScreen(status: TunnelStatus, actions: ScreenActions) {
         }
 
         if (status.tokenAsk != Mobile.TokenFine) TokenAskCard(status.tokenAskReason, actions)
-        if (status.state == Mobile.StateHealthy) InfoNote(stringResource(R.string.only_discord))
+        if (status.state == Mobile.StateHealthy) {
+            InfoNote(stringResource(R.string.close_discord_first))
+            InfoNote(stringResource(R.string.only_discord))
+        }
     }
 }
 
