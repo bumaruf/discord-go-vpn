@@ -54,8 +54,8 @@ Android; a lógica fica no Go.
 
 ## Instalando
 
-1. Baixe o `discord-go-vpn.apk` do artefato do job **Android** no CI, ou
-   compile (abaixo).
+1. Baixe o `discord-go-vpn.apk` da [release mais recente](https://github.com/bumaruf/discord-go-vpn/releases/latest),
+   ou compile (abaixo).
 2. Abra o arquivo no celular e permita a instalação de apps dessa origem quando
    o Android pedir.
 
@@ -115,6 +115,10 @@ Para assinar com uma chave própria, defina antes do build:
 | `ANDROID_KEYSTORE_PASSWORD` | senha do keystore |
 | `ANDROID_KEY_ALIAS` | alias da chave |
 | `ANDROID_KEY_PASSWORD` | senha da chave |
+
+Na release, o workflow lê as três senhas de secrets com esses mesmos nomes e o
+keystore do secret `ANDROID_KEYSTORE_BASE64` (o arquivo em base64). Sem ele, o
+APK da release sai com a chave de depuração do runner, que muda a cada build.
 
 Para trabalhar no Android Studio, rode `make android` uma vez (gera o `.aar`) e
 abra a pasta `android/`.
