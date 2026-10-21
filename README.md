@@ -273,14 +273,14 @@ Como instalar, usar e compilar: [`android/README.md`](android/README.md).
 
 ```sh
 make          # binário para este sistema
-make dist     # Linux amd64 + Windows amd64/arm64, com SHA256SUMS (VERSION=v1.2.3 numa versão publicada)
+make dist     # Linux e Windows amd64/arm64, com SHA256SUMS (VERSION=v2026.10.21 numa versão publicada)
 make test     # gofmt + go vet (Linux e Windows) + testes
 make lint     # golangci-lint (Linux e Windows), configurado em .golangci.yml
 make android  # APK do app Android em dist/ (precisa do Android SDK e do NDK)
 ```
 
 O CI (`.github/workflows/ci.yml`) roda `make test`, `make lint`, `make android`
-(o APK fica como artefato do job) e o lint, typecheck, Prettier, Vitest e build
+(só para garantir que compila; o APK publicado vem da release) e o lint, typecheck, Prettier, Vitest e build
 do painel em todo pull request e em todo push no `main`.
 
 Para compilar para Windows a partir de outro sistema sem o Makefile:
@@ -320,15 +320,18 @@ tamanho e hash batem com o manifesto, e só sobe de versão, nunca desce. Então
 quem tomar a conta do GitHub ou a release não consegue mandar um binário para os
 clientes: para isso precisaria da chave privada, que existe só como secret do CI.
 
-- **Linux:** o arquivo novo substitui o antigo com um `rename`, e o processo se
-  troca pelo novo via `exec`, mantendo o `sudo` e o terminal.
+- **Linux:** o arquivo novo substitui o antigo com um `rename`, fica com o mesmo
+  dono do antigo (e não com o root do `sudo`), e o processo se troca pelo novo
+  via `exec`, mantendo o `sudo` e o terminal.
 - **Windows:** um `.exe` em execução não pode ser sobrescrito, mas pode ser
   renomeado: o antigo vira `discord-go-vpn.exe.old`, que a próxima abertura
   apaga. A versão nova roda como processo filho na mesma janela.
-- **Android:** fica de fora por enquanto; o APK continua vindo do CI.
+- **Android:** fica de fora por enquanto; o APK sai em cada release, mas se
+  instala à mão.
 
 Um binário compilado sem `VERSION` (o `make` comum, ou `go build`) nunca se
-atualiza.
+atualiza. Uma release publicada sem `update.json`, como todas as anteriores ao
+auto-update, é tratada como "nada a fazer", sem aviso.
 
 ### Publicando uma versão
 
@@ -346,12 +349,16 @@ a chave depois exige que todo mundo baixe à mão um binário com a chave nova.
 Depois, a cada versão, basta uma tag:
 
 ```sh
-git tag v1.2.3 && git push origin v1.2.3
+git tag v2026.10.21 && git push origin v2026.10.21
 ```
 
+A tag precisa ser semver sem zero à esquerda: `v2026.10.21` e `v2026.9.3`
+servem, `v2026.09.03` não. O cliente compara versões como semver, e o workflow
+recusa uma tag fora desse formato antes de compilar.
+
 O workflow `.github/workflows/release.yml` roda `make test`, compila com
-`make dist VERSION=v1.2.3`, assina com `make sign` e publica a release com os
-binários, o `SHA256SUMS`, o `update.json` e a assinatura. O `make sign` falha se o
+`make dist VERSION=<tag>`, assina com `make sign` e publica a release com os
+binários, o APK do Android, o `SHA256SUMS`, o `update.json` e a assinatura. O `make sign` falha se o
 secret não corresponder à `publicKey` do código, para nunca publicar uma versão
 que os clientes recusariam.
 

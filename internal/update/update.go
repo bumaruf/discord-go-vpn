@@ -32,7 +32,14 @@ const (
 	checkTimeout    = 10 * time.Second
 	downloadTimeout = 5 * time.Minute
 	maxManifestSize = 64 << 10
+	tempPattern     = ".discord-go-vpn-update-*"
 )
+
+var errNotFound = errors.New("o GitHub respondeu HTTP 404")
+
+// errNoManifest is a latest release without update.json, as every release
+// published before the updater was.
+var errNoManifest = errors.New("release sem " + ManifestName)
 
 type updater struct {
 	client      *http.Client
@@ -66,9 +73,12 @@ func Run(ctx context.Context, w io.Writer) (code int, replaced bool, err error) 
 	if err != nil {
 		return 0, false, err
 	}
-	removeLeftover(exe)
+	removeLeftovers(exe)
 
 	m, asset, err := u.check(ctx)
+	if errors.Is(err, errNoManifest) {
+		return 0, false, nil
+	}
 	if err != nil || asset == nil {
 		return 0, false, err
 	}
@@ -106,6 +116,9 @@ func (u updater) check(ctx context.Context) (Manifest, *Asset, error) {
 
 	// latest/download redirects to the newest release without the API's rate limit.
 	manifest, err := u.fetch(ctx, u.releasesURL+"/latest/download/"+ManifestName)
+	if errors.Is(err, errNotFound) {
+		return Manifest{}, nil, errNoManifest
+	}
 	if err != nil {
 		return Manifest{}, nil, err
 	}
@@ -145,6 +158,10 @@ func (u updater) get(ctx context.Context, url string) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("não consegui falar com o GitHub: %w", err)
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%w para %s", errNotFound, url)
+	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("o GitHub respondeu HTTP %d para %s", resp.StatusCode, url)
@@ -165,7 +182,7 @@ func (u updater) download(ctx context.Context, version string, asset Asset, dir 
 	}
 	defer resp.Body.Close()
 
-	f, err := os.CreateTemp(dir, ".discord-go-vpn-update-*")
+	f, err := os.CreateTemp(dir, tempPattern)
 	if err != nil {
 		return "", fmt.Errorf("não consegui gravar a atualização em %s: %w", dir, err)
 	}
@@ -184,6 +201,16 @@ func (u updater) download(ctx context.Context, version string, asset Asset, dir 
 		return "", fmt.Errorf("download da versão %s falhou: %w", version, err)
 	}
 	return f.Name(), nil
+}
+
+// removeLeftovers deletes what an earlier update left beside exe: a download
+// interrupted before the rename and, on Windows, the replaced executable.
+func removeLeftovers(exe string) {
+	removeOld(exe)
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), tempPattern))
+	for _, path := range matches {
+		_ = os.Remove(path)
+	}
 }
 
 func executable() (string, error) {

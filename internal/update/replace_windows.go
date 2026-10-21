@@ -12,10 +12,10 @@ import (
 // the old one moves aside and the next start deletes it.
 func leftover(exe string) string { return exe + ".old" }
 
-func removeLeftover(exe string) { _ = os.Remove(leftover(exe)) }
+func removeOld(exe string) { _ = os.Remove(leftover(exe)) }
 
 func replace(exe, downloaded string) error {
-	removeLeftover(exe)
+	removeOld(exe)
 	if err := os.Rename(exe, leftover(exe)); err != nil {
 		return err
 	}
