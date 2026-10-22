@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -54,9 +55,22 @@ func InterfaceFor(cfg *wg.Config) Interface {
 	return iface
 }
 
+const (
+	// handshakeTimeout spans three of wireguard-go's handshake attempts, 5s apart.
+	handshakeTimeout = 15 * time.Second
+	handshakePoll    = 250 * time.Millisecond
+	// handshakeMaxAge is WireGuard's Reject-After-Time: keepalives renew the
+	// handshake every two minutes, and its keys stop working after three.
+	handshakeMaxAge = 3 * time.Minute
+)
+
 type Transport struct {
 	host Host
 	dev  *device.Device
+	// checkHandshake is set when the config has keepalives: without them
+	// wireguard-go handshakes only once Discord sends something.
+	checkHandshake bool
+	endpoint       string
 }
 
 func New(host Host) *Transport { return &Transport{host: host} }
@@ -90,7 +104,35 @@ func (t *Transport) Start(cfg *wg.Config) error {
 		return fmt.Errorf("subindo o túnel: %w", err)
 	}
 	t.dev = dev
+	t.endpoint = cfg.Peer.Endpoint
+	t.checkHandshake = cfg.Peer.Keepalive > 0
+	// The interface alone says nothing about the path: a network that drops the
+	// UDP would otherwise show a healthy tunnel that carries nothing.
+	if t.checkHandshake {
+		if err := awaitHandshake(t.Traffic, handshakeTimeout, handshakePoll); err != nil {
+			t.Close()
+			return t.unanswered()
+		}
+	}
 	return nil
+}
+
+// awaitHandshake polls traffic until the first handshake completes or timeout passes.
+func awaitHandshake(traffic func() (wg.Traffic, error), timeout, every time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if tr, err := traffic(); err == nil && !tr.LastHandshake.IsZero() {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("no handshake")
+		}
+		time.Sleep(every)
+	}
+}
+
+func (t *Transport) unanswered() error {
+	return fmt.Errorf("o servidor (%s) não respondeu ao túnel: esta rede pode estar bloqueando o UDP do WireGuard", t.endpoint)
 }
 
 // Ready fails once the device has closed itself, which happens when Android
@@ -103,8 +145,13 @@ func (t *Transport) Ready() error {
 	case <-t.dev.Wait():
 		return errors.New("o Android desligou a VPN")
 	default:
-		return nil
 	}
+	if t.checkHandshake {
+		if tr, err := t.Traffic(); err == nil && time.Since(tr.LastHandshake) > handshakeMaxAge {
+			return t.unanswered()
+		}
+	}
+	return nil
 }
 
 func (t *Transport) Traffic() (wg.Traffic, error) {

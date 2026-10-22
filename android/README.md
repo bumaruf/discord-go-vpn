@@ -75,7 +75,7 @@ O app precisa do Android 8 ou mais novo e do Discord instalado.
 
 | Estado | O que significa |
 |---|---|
-| **subindo** | pedindo o acesso e subindo o túnel |
+| **subindo** | pedindo o acesso, subindo o túnel e esperando o servidor responder |
 | **conectado** | o Discord está dentro do túnel |
 | **reconectando** | a conexão caiu e o app está tentando de novo; **Tentar agora** pula a espera |
 | **sem túnel** | 3 falhas seguidas: o Discord voltou para a rede normal enquanto o app continua tentando |

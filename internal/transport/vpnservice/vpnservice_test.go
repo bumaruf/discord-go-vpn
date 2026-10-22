@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -140,4 +141,23 @@ func openTUN(t *testing.T, name string) (int, error) {
 		t.Skipf("TUNSETIFF: %v", errno)
 	}
 	return fd, nil
+}
+
+func TestAwaitHandshake(t *testing.T) {
+	calls := 0
+	traffic := func() (wg.Traffic, error) {
+		calls++
+		if calls < 3 {
+			return wg.Traffic{}, nil
+		}
+		return wg.Traffic{LastHandshake: time.Now()}, nil
+	}
+	if err := awaitHandshake(traffic, time.Second, time.Millisecond); err != nil {
+		t.Errorf("awaitHandshake after a handshake: %v", err)
+	}
+
+	never := func() (wg.Traffic, error) { return wg.Traffic{}, nil }
+	if err := awaitHandshake(never, 10*time.Millisecond, time.Millisecond); err == nil {
+		t.Error("awaitHandshake succeeded without a handshake")
+	}
 }
