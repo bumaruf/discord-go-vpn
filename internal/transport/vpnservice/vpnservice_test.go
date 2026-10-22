@@ -53,7 +53,7 @@ func TestInterfaceFor(t *testing.T) {
 		Addresses: []string{"10.9.0.10/32", "fd00::a/128"},
 		Routes:    []string{"0.0.0.0/0", "::/0"},
 		DNS:       []string{"10.9.0.1"},
-		MTU:       1380,
+		MTU:       MaxMTU,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("InterfaceFor = %+v, want %+v", got, want)
@@ -66,11 +66,19 @@ func TestInterfaceForFillsDefaults(t *testing.T) {
 	cfg.Peer.AllowedIPs = []string{"10.0.0.0/8"}
 
 	got := InterfaceFor(cfg)
-	if got.MTU != wg.DefaultMTU || !reflect.DeepEqual(got.DNS, []string{wg.DefaultDNS.String()}) {
+	if got.MTU != MaxMTU || !reflect.DeepEqual(got.DNS, []string{wg.DefaultDNS.String()}) {
 		t.Errorf("MTU %d, DNS %v: want the defaults", got.MTU, got.DNS)
 	}
 	if !reflect.DeepEqual(got.Routes, []string{"10.0.0.0/8"}) {
 		t.Errorf("Routes = %v, want the .conf's AllowedIPs", got.Routes)
+	}
+}
+
+func TestInterfaceForKeepsASmallerMTU(t *testing.T) {
+	cfg := config()
+	cfg.MTU = 1200
+	if got := InterfaceFor(cfg).MTU; got != 1200 {
+		t.Errorf("MTU = %d, want the .conf's 1200", got)
 	}
 }
 
