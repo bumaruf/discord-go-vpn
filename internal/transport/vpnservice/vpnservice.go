@@ -26,10 +26,9 @@ type Interface struct {
 	MTU       int
 }
 
-// MaxMTU caps the interface's MTU. A phone moves between Wi-Fi and cellular under a
-// running VPN, whose MTU can't change, and cellular paths can be narrower than
-// 1500 bytes without passing fragments: on Vivo, 1420 makes 1480-byte datagrams
-// that vanish while the handshake still gets through. 1280 is the IPv6 minimum.
+// MaxMTU caps the interface's MTU: the phone changes networks under a running VPN,
+// and cellular paths can be narrower than 1500 bytes and drop fragments (Vivo
+// carries at most 1472). 1280 is the IPv6 minimum.
 const MaxMTU = 1280
 
 // Host is the app's VpnService.
