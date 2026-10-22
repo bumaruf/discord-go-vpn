@@ -26,6 +26,12 @@ type Interface struct {
 	MTU       int
 }
 
+// MaxMTU caps the interface's MTU. A phone moves between Wi-Fi and cellular under a
+// running VPN, whose MTU can't change, and cellular paths can be narrower than
+// 1500 bytes without passing fragments: on Vivo, 1420 makes 1480-byte datagrams
+// that vanish while the handshake still gets through. 1280 is the IPv6 minimum.
+const MaxMTU = 1280
+
 // Host is the app's VpnService.
 type Host interface {
 	// Establish creates the interface and returns its descriptor, which the
@@ -37,9 +43,9 @@ type Host interface {
 }
 
 func InterfaceFor(cfg *wg.Config) Interface {
-	iface := Interface{Routes: cfg.Peer.EffectiveAllowedIPs(), MTU: cfg.MTU}
-	if iface.MTU == 0 {
-		iface.MTU = wg.DefaultMTU
+	iface := Interface{Routes: cfg.Peer.EffectiveAllowedIPs(), MTU: MaxMTU}
+	if cfg.MTU > 0 && cfg.MTU < MaxMTU {
+		iface.MTU = cfg.MTU
 	}
 	for _, addr := range cfg.Addresses {
 		iface.Addresses = append(iface.Addresses, wg.HostPrefix(addr))
