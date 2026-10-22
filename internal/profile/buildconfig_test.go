@@ -17,7 +17,6 @@ func TestBuildConfig(t *testing.T) {
 		PrivateKey: "priv",
 		Addresses:  []netip.Addr{netip.MustParseAddr("10.8.0.7")},
 		DNS:        []netip.Addr{netip.MustParseAddr("10.8.0.1")},
-		MTU:        wg.DefaultMTU,
 		Peer: wg.Peer{
 			PublicKey:  "serverpub",
 			Endpoint:   "203.0.113.10:51820",

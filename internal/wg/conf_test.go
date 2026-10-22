@@ -61,15 +61,15 @@ func TestParseReadsEssentialFields(t *testing.T) {
 	}
 }
 
-func TestDefaultMTUWhenOmitted(t *testing.T) {
+func TestMTUUnsetWhenOmitted(t *testing.T) {
 	conf := fmt.Sprintf("[Interface]\nPrivateKey=%s\nAddress=10.2.0.2/32\n[Peer]\nPublicKey=%s\nEndpoint=203.0.113.10:51820\n", key(1), key(2))
 
 	cfg, err := Parse(strings.NewReader(conf))
 	if err != nil {
 		t.Fatalf("Parse returned an error: %v", err)
 	}
-	if cfg.MTU != DefaultMTU {
-		t.Errorf("MTU = %d, want the default %d", cfg.MTU, DefaultMTU)
+	if cfg.MTU != 0 {
+		t.Errorf("MTU = %d, want 0 for the transport's default", cfg.MTU)
 	}
 	if len(cfg.DNS) != 1 {
 		t.Fatalf("DNS has %d entries, want the single default", len(cfg.DNS))
@@ -141,7 +141,7 @@ func TestConfRoundTripsThroughParse(t *testing.T) {
 	}
 
 	want := *cfg
-	want.MTU = DefaultMTU
+	want.MTU = 0
 	if !reflect.DeepEqual(again, &want) {
 		t.Errorf("Parse(Conf()) =\n%+v\nwant\n%+v\nconf:\n%s", again, &want, cfg.Conf())
 	}

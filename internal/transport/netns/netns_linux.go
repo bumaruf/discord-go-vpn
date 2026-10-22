@@ -61,7 +61,11 @@ func Start(cfg *wg.Config) (*Namespace, error) {
 	// setup with "file exists".
 	cleanup()
 
-	tunDev, err := tun.CreateTUN(devName, cfg.MTU)
+	mtu := cfg.MTU
+	if mtu == 0 {
+		mtu = wg.DefaultMTU
+	}
+	tunDev, err := tun.CreateTUN(devName, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("criando a interface %s: %w", devName, err)
 	}

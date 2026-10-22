@@ -39,7 +39,7 @@ type Host interface {
 func InterfaceFor(cfg *wg.Config) Interface {
 	iface := Interface{Routes: cfg.Peer.EffectiveAllowedIPs(), MTU: cfg.MTU}
 	if iface.MTU == 0 {
-		iface.MTU = wg.DefaultMTU
+		iface.MTU = wg.MobileMTU
 	}
 	for _, addr := range cfg.Addresses {
 		iface.Addresses = append(iface.Addresses, wg.HostPrefix(addr))

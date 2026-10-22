@@ -227,7 +227,6 @@ func buildConfig(priv, serverPub, address, dns, endpoint string) (*wg.Config, er
 		PrivateKey: priv,
 		Addresses:  []netip.Addr{prefix.Addr()},
 		DNS:        []netip.Addr{resolver},
-		MTU:        wg.DefaultMTU,
 		Peer: wg.Peer{
 			PublicKey:  serverPub,
 			Endpoint:   endpoint,

@@ -66,7 +66,7 @@ func TestInterfaceForFillsDefaults(t *testing.T) {
 	cfg.Peer.AllowedIPs = []string{"10.0.0.0/8"}
 
 	got := InterfaceFor(cfg)
-	if got.MTU != wg.DefaultMTU || !reflect.DeepEqual(got.DNS, []string{wg.DefaultDNS.String()}) {
+	if got.MTU != wg.MobileMTU || !reflect.DeepEqual(got.DNS, []string{wg.DefaultDNS.String()}) {
 		t.Errorf("MTU %d, DNS %v: want the defaults", got.MTU, got.DNS)
 	}
 	if !reflect.DeepEqual(got.Routes, []string{"10.0.0.0/8"}) {

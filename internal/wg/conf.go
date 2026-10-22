@@ -20,6 +20,11 @@ import (
 // tunnel overhead. An MTU in the .conf overrides it.
 const DefaultMTU = 1420
 
+// MobileMTU is the official WireGuard Android app's default: mobile networks
+// often carry less than 1500 bytes (464XLAT, carrier tunnels), and an MTU above
+// the path silently drops the large packets once the handshake has succeeded.
+const MobileMTU = 1280
+
 // DefaultDNS applies when a config has no usable DNS: without a resolver
 // nothing resolves inside the tunnel.
 var DefaultDNS = netip.MustParseAddr("1.1.1.1")
@@ -48,7 +53,7 @@ type Config struct {
 	PrivateKey string
 	Addresses  []netip.Addr
 	DNS        []netip.Addr
-	MTU        int
+	MTU        int // 0 leaves it to the transport's default
 	Peer       Peer
 }
 
@@ -67,7 +72,7 @@ func Load(path string) (*Config, error) {
 }
 
 func Parse(r io.Reader) (*Config, error) {
-	cfg := &Config{MTU: DefaultMTU}
+	cfg := &Config{}
 
 	var section string
 	scanner := bufio.NewScanner(r)
