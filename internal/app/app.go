@@ -20,6 +20,7 @@ import (
 	"github.com/bumaruf/discord-go-vpn/internal/connectiontoken"
 	"github.com/bumaruf/discord-go-vpn/internal/control"
 	"github.com/bumaruf/discord-go-vpn/internal/errtext"
+	"github.com/bumaruf/discord-go-vpn/internal/platform/instance"
 	"github.com/bumaruf/discord-go-vpn/internal/profile"
 	"github.com/bumaruf/discord-go-vpn/internal/routing"
 	"github.com/bumaruf/discord-go-vpn/internal/startup"
@@ -198,12 +199,24 @@ func (r *run) screen(cancel context.CancelFunc) bool {
 	return true
 }
 
+// PanelLock is the lock the screen on the service holds, so the tray opens it
+// only once.
+const PanelLock = "panel"
+
 // attach draws the service's tunnel. Closing the screen leaves it up.
 func attach(ctx context.Context, opts Options, conn *control.Conn) int {
 	defer conn.Close()
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		fmt.Fprintln(opts.Err, "o serviço está instalado: use a bandeja, ou abra num terminal para ver o painel")
 		return 1
+	}
+	release, err := instance.Hold(PanelLock)
+	if errors.Is(err, instance.ErrHeld) {
+		fmt.Fprintln(opts.Err, "o painel já está aberto em outra janela")
+		return 1
+	}
+	if err == nil {
+		defer release()
 	}
 	boot := func(rep startup.Reporter) (ui.Session, error) {
 		rm, sess, err := control.Attach(conn, rep)
@@ -220,7 +233,10 @@ func attach(ctx context.Context, opts Options, conn *control.Conn) int {
 		return s, nil
 	}
 	m := ui.New(ctx, ui.Options{Version: update.Version, Boot: boot, Detached: true})
-	if _, err := tea.NewProgram(m).Run(); err != nil {
+	// Nothing here to take down, so a closed terminal (SIGHUP) ends the screen
+	// at once; left running unseen, it would keep the tray from opening another.
+	_, err = tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	if err != nil && ctx.Err() == nil {
 		fmt.Fprintln(opts.Err, "a interface não pôde ser desenhada:", err)
 		return 1
 	}
