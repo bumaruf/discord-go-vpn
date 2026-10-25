@@ -18,7 +18,13 @@ func Resolve(explicit string) (string, error) {
 	return Find()
 }
 
+// Find looks for Discord the way the desktop would open it: the person's own
+// desktop entry first, then PATH, then the usual install paths.
 func Find() (string, error) {
+	if exe := userDesktopEntry(); exe != "" {
+		return exe, nil
+	}
+
 	for _, name := range namesInPath() {
 		if path, err := exec.LookPath(name); err == nil {
 			return path, nil

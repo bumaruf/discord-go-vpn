@@ -43,3 +43,4 @@ O texto que o usuário final lê continua em pt-BR (TUI, CLI, painel). O glossá
 | atualização automática | update | O cliente de Linux e Windows trocando o próprio executável pela versão mais nova das Releases do GitHub, ao abrir e antes de conectar. Pacote `internal/update`. |
 | manifesto de atualização | update manifest | O `update.json` de cada release: versão e SHA-256 de cada binário, assinado com ed25519 no `update.json.sig`. |
 | bloco rápido | tile | Botão do app Android nas configurações rápidas, que liga e desliga o túnel. |
+| entrada de menu | desktop entry | O `.desktop` que abre o Discord no Linux. O cliente usa o que o usuário tem em `~/.local/share/applications` para abrir o Discord no túnel do mesmo jeito que o menu abriria. |

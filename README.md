@@ -211,6 +211,12 @@ recente. Para indicar um arquivo específico, use `-c /caminho/arquivo.conf`.
 | `-token dgv1_…` | passa o token de conexão sem a pergunta (também: variável `VPN_TOKEN`) |
 | `-discord caminho` | aponta o executável do Discord, se ele estiver fora do lugar comum |
 
+Sem `-discord`, o programa abre o Discord como o menu da área de trabalho
+abriria: no Linux, um `discord.desktop` seu em `~/.local/share/applications`
+(um wrapper, um Flatpak, um hook) tem prioridade sobre o que está no `PATH`.
+É assim que o [hook de decodificação NVIDIA](docs/discord-linux-h265.md) entra
+no túnel.
+
 Se o terminal não consegue desenhar a interface, o programa segue em modo texto,
 uma linha por mudança de estado.
 
@@ -493,7 +499,7 @@ mobile/                a API Go que o gomobile empacota para o app Android
 panel/                 painel de administração (Next.js num Cloudflare Worker)
 server/                o que roda na VPS (Docker Compose, Caddy, scripts)
 testdata/contracts/    os formatos de rede que o Go e o painel conferem
-docs/                  glossário dos termos do domínio
+docs/                  glossário dos termos do domínio e notas de suporte
 install.sh             o instalador do Linux: serviço systemd, bandeja e atalhos
 ```
 
@@ -518,6 +524,7 @@ install.sh             o instalador do Linux: serviço systemd, bandeja e atalho
 | [`panel/README.md`](panel/README.md) | rodar e publicar o painel de administração |
 | [`android/README.md`](android/README.md) | instalar, usar e compilar o app Android |
 | [`docs/glossary.md`](docs/glossary.md) | o nome em inglês de cada termo do domínio |
+| [`docs/discord-linux-h265.md`](docs/discord-linux-h265.md) | stream com "Error: 2012" no Discord Linux: o H265 e o hook de decodificação NVIDIA |
 
 ## Licença
 
